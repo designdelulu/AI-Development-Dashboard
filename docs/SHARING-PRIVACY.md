@@ -32,3 +32,7 @@ The same snapshot/card schema supports 9:16 stories. A future renderer should pr
 ## Share experience
 
 The interface starts with a public-safe observed-story preview before customization. Its agent marks use an internal geometric system—not provider logos—and mark size is accompanied by numeric observed-session share. Achievements are deterministic, evidence-labelled and intentionally never reward token volume, LOC, prompt count or tool-call count.
+
+Share cards keep four normalized token categories separate: Fresh input, Output, Cache read and Cache creation. A segmented composition may show their relative observed volume, but labels explicitly state that cached context is not fresh consumption. A category known elsewhere in local history but absent from the chosen period remains selectable only as an explained unavailable state; it is never rendered as a misleading zero.
+
+The Claude, Codex and Cursor share marks are dashboard-owned abstract line identities. The official Cursor brand page and OpenAI brand guidance were reviewed previously, but a consistently reusable official set covering all three agents could not be verified under one redistribution model. Keeping an original, clearly labelled set avoids implied endorsement and third-party trademark asset bundling. Mark area is a deterministic square-root transform of observed session count within the selected period, while accessible text preserves the exact count and percentage.

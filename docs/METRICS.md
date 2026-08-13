@@ -57,3 +57,7 @@ Plan capacity remains separate from local token analytics. Codex session records
 ## Share recap periods
 
 Share Stats filters public-safe metrics to **Today**, **This Month**, or **Since tracking began**. “Since tracking began” starts at the earliest timestamp in the dashboard’s available local session records; it does not claim complete pre-dashboard history. Each frozen `ShareSnapshot` records its period boundaries and title. A metric is omitted when it has no evidence in the selected period.
+
+The social renderer uses period-specific emphasis rather than one fixed number grid: Today leads with current observed agent/session activity, This Month is a recap composition, and Since Tracking Began is framed as a developer profile with its tracking date. Agent mark size uses `min + (max − min) × sqrt(agent sessions / largest agent sessions)` for non-zero agents; a zero-session agent receives no data-sized mark and a faint labelled placeholder. This visual scaling never changes the frozen snapshot values.
+
+Token share options traverse the same session-period filter as the recap. Fresh Input, Output, Cache Read and Cache Creation remain distinct metric IDs through eligibility, `ShareSnapshot`, and SVG rendering. If a category is supported in the available history but not observed in the chosen period, the option carries an explicit unavailable explanation instead of a blank value or zero.
