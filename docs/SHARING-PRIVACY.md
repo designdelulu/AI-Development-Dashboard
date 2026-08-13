@@ -11,6 +11,8 @@
 
 The export module centrally constructs public exports from allowlisted fields. Private capabilities are excluded from Shareable Stack and Manifest. Private Inventory is marked **PRIVATE — DO NOT SHARE** and still excludes forbidden fields.
 
+Dashboard-only project pins, statuses and notes are **Private**. They are not public-share metrics, are not read by ShareSnapshot creation, and are excluded from Share Stack, Manifest, Setup Prompt and social-card rendering. A future opt-in sharing control would need an explicit separate field class and confirmation.
+
 ## Share snapshots and links
 
 A `ShareSnapshot` freezes selected public-safe values, metric-definition version, period, privacy class and output format in the local gitignored index. Browser cards are rendered solely from that snapshot. Generated images are downloaded locally; no cloud upload exists.
@@ -26,3 +28,7 @@ Future Import Stack flow: audit target machine → compare installed capabilitie
 ## Future story/video
 
 The same snapshot/card schema supports 9:16 stories. A future renderer should prefer browser animation capture or Remotion if a repeatable video workflow is justified; it must consume snapshots, not live private telemetry.
+
+## Share experience
+
+The interface starts with a public-safe observed-story preview before customization. Its agent marks use an internal geometric system—not provider logos—and mark size is accompanied by numeric observed-session share. Achievements are deterministic, evidence-labelled and intentionally never reward token volume, LOC, prompt count or tool-call count.

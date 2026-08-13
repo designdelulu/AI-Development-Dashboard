@@ -28,4 +28,10 @@ Node 20.19.5, npm, Git, SQLite CLI, Claude, Codex and Cursor CLIs were present. 
 
 ## VS Code historical AI data
 
-VS Code is installed. Safe inventory found installed AI-related extensions including GitHub Copilot Chat support, Claude Code, OpenAI ChatGPT and Continue, plus VS Code global/workspace SQLite state. The state databases are not parsed: this audit found no documented, stable local AI-session transcript format that would permit safe project attribution without reading opaque extension state. Consequently VS Code is represented as an editor host with detected AI extensions, not as an AI agent and not as historical AI activity. Future adapters should ingest only structured, versioned extension telemetry with explicit agent, timestamp and workspace evidence.
+VS Code is installed. Safe inventory found installed AI-related extensions including Claude Code, OpenAI ChatGPT and Continue, plus VS Code global/workspace SQLite state. A second bounded extension-specific inspection found no versioned, privacy-safe session/log format with reliable agent, timestamp and workspace attribution. Opaque extension storage and ordinary editing history are not parsed. **Historical VS Code AI usage unavailable.** Consequently VS Code is represented as an editor host with detected AI extensions, not as an AI agent and not as historical AI activity. Future adapters should ingest only structured, versioned extension telemetry with explicit agent, timestamp and workspace evidence.
+
+## Design-skill audit — 2026-08-13
+
+The project-local Impeccable installation at `Design-Delulu/.claude/skills/impeccable/SKILL.md` is portable Markdown Agent Skill material and was read-only design-review input for the dashboard refinement. It informed an `Operate`-mode direction: compact hierarchy, precise controls, visual feedback tied to real measurements, and bounded desktop/mobile validation. No Impeccable source was changed.
+
+A bounded read-only search of user/project Claude, Codex, Cursor and shared Agent Skills locations found no installed portable Taste/Taste Skill source suitable for Codex consumption. No duplicate installation was created. The dashboard design rationale therefore uses Impeccable guidance plus the existing Design Delulu system, not invented Taste instructions.

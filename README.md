@@ -11,7 +11,7 @@ npm run scan
 npm start
 ```
 
-Open `http://127.0.0.1:4177`. The server binds only to loopback. Press **Rescan** to rebuild its private derived index.
+Open `http://127.0.0.1:4177`. The server binds only to loopback. It refreshes incrementally at startup and after local changes; the small refresh control is only a fallback.
 
 ## What V1 supports
 
@@ -26,6 +26,9 @@ Open `http://127.0.0.1:4177`. The server binds only to loopback. Press **Rescan*
 - Discovers skills and instructions across user/project Claude, Codex and Cursor locations as capability references.
 - Calculates descriptive Git changes, commit counts and measured text-line counts.
 - Presents Overview, Projects/detail, Capabilities/detail and Maintenance views; supports search and responsive layout.
+- Keeps local-only project pins, statuses and concise working notes in a separate gitignored metadata store. They survive rescans and are never included in share/export assets.
+- Separates Skills, Tools, Integrations and Instructions, with independent capability scope, artifact state and agent installation coverage.
+- Opens Export Setup and Share Stats as toggleable utility drawers. Share Stats starts with a privacy-safe story, agent session-share marks and deterministic achievements before optional customization.
 
 ## Truth model
 
