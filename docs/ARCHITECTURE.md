@@ -50,6 +50,8 @@ Native agent behaviors are represented as `Automation` capabilities, distinct fr
 
 Live state has its own bounded transport. The scanner persists historical normalized data, while an in-memory resource sampler and 60-second agent-event ring are delivered through a cache-disabled `/api/live-state` endpoint. The browser polls that endpoint every two seconds. This keeps live UI updates independent of session-history rescans and provider authentication.
 
+The browser derives a conservative live state and timing record without changing that transport. `public/agent-state.js` classifies the current normalized events; `public/signal-field.js` turns the same bounded evidence into deterministic display envelopes. The versioned local timing record stores only aggregate observed durations and a bounded transition list. It begins at first use, treats suspended gaps as unobserved, contains no prompts or transcript content, and is kept outside scanner output so rescans cannot overwrite it. The schema leaves project ID and handoff-cycle attribution as future additions rather than guessing them now.
+
 ## Future directions
 
 Phase 2 adds normalized token categories, structured Claude `attributionSkill` events, rolling comparable efficiency components, and a centralized sharing/export boundary. `ShareSnapshot` records only selected public-safe values and metric definitions before rendering a card. A future `New Project` feature should create a folder/Git root plus agent instruction stubs only through documented agent integrations. Workflow continuation/routing should consume personal historical evidence and never attempt subscription pooling or unsupported authentication flows.

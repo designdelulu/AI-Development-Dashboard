@@ -23,13 +23,24 @@ Tokens per session, cache-read ratio and tools per session compare rolling 30-da
 
 ## Live activity monitor and system resources
 
-**Activity** is a visualisation of timestamped local session events—not model compute, effort, token throughput, or user presence. Every event contributes a deterministic weight of `1 + min(2, log2(tool calls + 1))` at its observed timestamp. The monitor samples a rolling 45-second window and decays each contribution exponentially with a 9-second decay constant. With no observed events, an agent trace settles to its baseline. The browser interpolates/decays these compact timestamps between index refreshes; it never creates random spikes or asks the scanner to reparse history for animation.
+**Activity** is a visualisation of timestamped local session events—not model compute, effort, token throughput, or user presence. Each event retains its deterministic observed weight. For presentation, that real event becomes a short signal envelope with a 180 ms attack and 7.5-second exponential decay. Envelopes from repeated events add together, so sustained real updates create denser regions. The Canvas samples those envelopes across a rolling 45-second field as closely spaced vertical micro-bars; one telemetry event can therefore produce many visual bars without becoming many analytics events.
 
-The Canvas applies a display-only gain `tanh(0.82 × raw intensity)` before mapping each agent onto one shared plotting field. Zero maps to exactly zero, the transform is deterministic and monotonic, and the normalized values are never stored or fed back into analytics. The shared baseline sits at 82% of plot height and the display range spans 68%, so modest real events are visible while larger bursts remain bounded. Because every agent uses the same field and transform, traces can overlap and cross without implying comparability beyond the observed activity definition.
+The bar field has two explicitly separate inputs. **Activity modulation** uses only the real event envelopes and a bounded display gain of `tanh(0.52 × envelope energy)`. **Baseline carrier** is a low-amplitude deterministic sine carrier that only indicates the display is alive. It never changes state, intensity, or timing. There are no random activity bursts. Claude, Codex and Cursor share the same field with three-pixel visual center offsets, allowing their colored bars to layer and intersect. Age-based opacity and envelope decay create the trailing wake. Reduced-motion mode replaces the moving carrier with a constant low baseline while retaining real-event bars and text state.
 
 The resource strip is intentionally separate from agent activity. On macOS it reports working RAM from `vm_stat` active + wired + compressed pages, host CPU utilisation derived from deltas in Node's `os.cpus()` time counters, and this dashboard server's RSS/process CPU. These are host/system values, not attributable AI consumption. The backend samples every two seconds; working RAM refreshes every five seconds. A single cache-disabled `/api/live-state` poll delivers system resources and the compact agent-event ring to the browser every two seconds. Historical scanner state is not involved. Missing telemetry displays as unavailable.
 
-The canvas redraw is capped at roughly 10 frames per second and retains only compact recent timestamps in the browser. Source watching remains incremental: it waits for 7.5 seconds of local source quiet before a heavier index refresh, ignores the dashboard's own derived data, and falls back to a five-minute checkpoint refresh. It never continuously rescans session histories to animate the monitor.
+The canvas redraw is capped at 12.5 frames per second (8 in reduced-motion mode), uses three-pixel desktop/five-pixel mobile bar spacing, and retains at most 512 compact recent events. Rendering pauses while the tab is hidden. Source watching remains incremental: it waits for 7.5 seconds of local source quiet before a heavier index refresh, ignores the dashboard's own derived data, and falls back to a five-minute checkpoint refresh. It never continuously rescans session histories to animate the monitor.
+
+### Live agent states and timing
+
+All three adapters use the same conservative state rules over their validated local event sources:
+
+- **Working** — a real local event was observed within the previous 12 seconds. This is observed local busy activity, not remote model inference.
+- **Waiting for You** — the most recent event is 12 seconds to five minutes old. This is a strong interaction hint but remains explicitly **Inferred**: Claude, Codex and Cursor do not expose a reliable native “waiting for user” marker in the available local records.
+- **Idle** — no relevant event is available, or the most recent event is older than five minutes.
+- **Unknown** — the normalized index does not establish a supported local source for that agent.
+
+Browser-local timing begins only when this state tracker first runs. A versioned fixed-size record in local storage accumulates `observedWorkingMs`, `waitingForUserMs`, `observedIdleMs`, `unknownMs`, and `unobservedMs`, plus at most 96 recent state transitions. It never backfills historical durations. Tick gaps over five seconds—such as a suspended or closed tab—go to `unobservedMs` rather than being credited to a state. These measurements describe what the open dashboard observed and form a conservative foundation for future project/cycle attribution; they are not exact provider response or compute times.
 
 ### Live signal sources
 
