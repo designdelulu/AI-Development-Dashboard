@@ -19,25 +19,28 @@ npm run scan
 npm start
 ```
 
-Open `http://127.0.0.1:4177`. The server binds only to loopback. It refreshes incrementally at startup and after local changes; the small refresh control is only a fallback.
+Open `http://127.0.0.1:4177`. The server binds only to loopback. It refreshes incrementally at startup and after local source changes; the small refresh control is only a fallback.
+
+Project roots default to `~/Dropbox/Projects`. Override with `AI_DASHBOARD_PROJECTS_ROOT` (one path) or `AI_DASHBOARD_PROJECTS_ROOTS` (colon- or comma-separated), or write `projectsRoots` in `.dashboard-data/settings.json`.
 
 ## What V1 supports
 
-- Finds Git repositories below `~/Dropbox/Projects` as canonical projects.
-- Reads observed metadata from `~/.claude/projects`, `~/.codex/sessions`, and `~/.cursor/projects` through isolated adapters.
+- Finds Git repositories below configured project roots (default `~/Dropbox/Projects`; override with `AI_DASHBOARD_PROJECTS_ROOT` / `AI_DASHBOARD_PROJECTS_ROOTS` or `.dashboard-data/settings.json`).
+- Reads observed metadata from `~/.claude/projects`, `~/.codex/sessions`, and `~/.cursor/projects` through isolated adapters. Model names are taken from later JSONL rows when the first record omits them.
 - Attributes sessions to a project from recorded working directory, with visible confidence.
 - Separates fresh input, output, cache-read and cache-creation token fields; it never labels their sum as subscription “tokens used.”
-- Confirms capability use only from structured metadata and supports local-safe stack/manifest/private-inventory exports plus frozen share-card snapshots.
+- Confirms capability use only from structured metadata and supports local-safe stack/manifest/private-inventory exports plus frozen share-card snapshots. Share previews stay in memory; only real exports persist `ShareSnapshot` files.
 - Groups raw skill/plugin/command references into recognizable parent capabilities and keeps components available as an advanced audit view.
 - Refreshes automatically at startup and after local source changes; the interface shows a subtle live/update state instead of making scanning a primary workflow.
 - Reuses unchanged session summaries using source size + modification-time checkpoints; large transcripts are read only as bounded metadata prefixes.
 - Discovers skills and instructions across user/project Claude, Codex and Cursor locations as capability references.
-- Calculates descriptive Git changes, commit counts and measured text-line counts.
-- Presents Overview, Projects/detail, Capabilities/detail and Maintenance views; supports search and responsive layout.
+- Records cheap Git snapshots (branch, HEAD, dirty state, commit count) during scans. Full LOC walks are not part of the scan path.
+- Presents Overview as an operator surface (Needs You, Continue Working, Start Here) plus Projects/detail, Capabilities/detail and Maintenance views.
+- Builds metadata-only project handoffs and can open a project in Cursor or Codex when those CLIs are installed. Claude Code is reported unavailable when its CLI is missing.
 - Keeps local-only project pins, statuses and concise working notes in a separate gitignored metadata store. They survive rescans and are never included in share/export assets.
-- Separates Skills, Tools, Integrations and Instructions, with independent capability scope, artifact state and agent installation coverage.
+- Separates Skills, Tools, Integrations and Instructions, with independent capability scope, artifact state and agent installation coverage. Maintenance emphasises broken/partial/duplicate items; unused capabilities stay collapsed. This dashboard does not install or sync skills.
 - Opens Export Setup and Share Stats as toggleable utility drawers. Share Stats starts with a privacy-safe story, agent session-share marks and deterministic achievements before optional customization.
-- Runs as a readable persistent desktop utility at common laptop and half-monitor window sizes. Overview prioritizes the live signal field, agent state, system resources, capacity where locally supported, and essential current activity above the fold.
+- Runs as a readable persistent desktop utility at common laptop and half-monitor window sizes. Overview puts resume and waiting-for-you above the live signal field, resources, and capacity.
 - Builds a local Share Story deck: intro, ranked agent usage, projects/sessions, supported token profile, capability usage, and deterministic achievements appear only when evidence supports each slide. Export the current PNG, all available slide PNGs, or play a local review slideshow.
 
 ## Truth model
@@ -73,7 +76,7 @@ The tests use sanitized generated fixtures. See [environment audit](docs/ENVIRON
 | --- | --- | --- |
 | Claude Code | Session metadata, supported token fields, structured skill attribution, local session-file activity | No supported local subscription percentage source is used. |
 | Codex CLI | Session metadata, working-directory attribution, supported tool/context markers, local session-file activity | Token categories depend on what local records expose. |
-| Cursor | Safe transcript/session presence and encoded project attribution | Local records do not currently support trustworthy token totals. |
+| Cursor | Safe session presence, encoded project attribution, live WAL/`agent-tools` mtime | Local records do not currently support trustworthy token totals. Transcript files are often empty while an agent is working. |
 | Git | Repository identity and descriptive change activity | LOC and churn are descriptive, not productivity scores. |
 
 ## Public-release notes

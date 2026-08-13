@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { discoverProjects, derive, normalizeUsage, tokenActivity, capabilityUsageEvents, groupCapabilities, classifyCapability, maintenanceGroups, applyProjectMetadata, achievementsFor, ACHIEVEMENT_TIERS, discoverNativeAutomations, CONFIDENCE } from '../src/core.js';
+import { discoverProjects, derive, normalizeUsage, tokenActivity, capabilityUsageEvents, groupCapabilities, classifyCapability, maintenanceGroups, applyProjectMetadata, achievementsFor, ACHIEVEMENT_TIERS, discoverNativeAutomations, CONFIDENCE, observedModel, gitSnapshot } from '../src/core.js';
 import { AGENT_ASSETS, agentAsset, agentMarkScale, shareableStack, manifest, createSnapshot, shareCardSvg, setupPrompt, recapFor, publicMetricOptions, storyCardsFor } from '../src/sharing.js';
 import { defaultShareMetrics, updateSharePreferences } from '../public/share-controls.js';
 import { activityEventWeight, activityIntensityAt, activitySeries, activityMonitor, cpuUtilization, liveStateSnapshot, normalizeResources, sessionFileSignal } from '../src/activity.js';
@@ -11,6 +11,10 @@ import { overviewCopy, sessionOverviewCopy } from '../public/overview-copy.js';
 import { boundedSignalEvents, eventSignalEnvelope, signalBarSample, signalEnergy } from '../public/signal-field.js';
 import { advanceTimingRecord, classifyAgentState, createTimingRecord } from '../public/agent-state.js';
 import { normalizeCapacity, readPlanCapacity } from '../src/capacity.js';
+import { resolveProjectRoots } from '../src/config.js';
+import { lastSessionForProject, observedContext, projectHandoff, rankResumeCandidates, startHereRecommendation } from '../src/resume.js';
+import { openAgentCommand } from '../src/open-agent.js';
+import { isCursorLivePath } from '../src/live-files.js';
 
 function fixture() { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidash-')); fs.mkdirSync(path.join(root, 'alpha', '.git'), { recursive: true }); fs.writeFileSync(path.join(root, 'alpha', 'app.js'), 'export const answer = 42;\n'); return root; }
 test('discovers a canonical Git project', () => { const root = fixture(); const projects = discoverProjects(root); assert.equal(projects.length, 1); assert.equal(projects[0].name, 'alpha'); assert.equal(projects[0].confidence, CONFIDENCE.confirmed); });
@@ -50,3 +54,141 @@ test('share recaps filter today, month, and available tracking history without u
 test('detects Claude native auto-compact as a safe Automation',()=>{const home=fs.mkdtempSync(path.join(os.tmpdir(),'automation-'));fs.mkdirSync(path.join(home,'.claude'));fs.writeFileSync(path.join(home,'.claude','settings.json'),JSON.stringify({autoCompactEnabled:true,autoCompactWindow:300000,apiKey:'never-export'}));const raw=discoverNativeAutomations(home);assert.equal(raw.length,1);assert.equal(raw[0].type,'Automation');assert.equal(raw[0].scope,'User / Global');assert.match(raw[0].behavior,/300,000 tokens/);const grouped=groupCapabilities(raw,[])[0];assert.equal(grouped.type,'Automation');assert.equal(grouped.artifactState,'Complete');assert.equal(grouped.health,'Active');const index={summary:{agents:['Claude']},capabilities:[grouped]};const exported=JSON.stringify(shareableStack(index)),machine=JSON.stringify(manifest(index));assert.match(exported,/Claude Auto-Compact/);assert.match(machine,/autoCompactWindow/);assert.equal(exported.includes('apiKey'),false);assert.equal(machine.includes('apiKey'),false);assert.match(setupPrompt(index),/Verify the installed Claude Code version supports/);});
 test('capacity normalization keeps native plan metadata separate and safe',()=>{const value=normalizeCapacity('Codex',{primary:{used_percent:23,window_minutes:10080,resets_at:1787201417},plan_type:'plus'},'2026-08-13T00:00:00Z');assert.equal(value.windows[0].remainingPercent,77);assert.equal(value.windows[0].label,'Weekly');assert.equal(value.status,'Available');assert.equal(normalizeCapacity('Claude',null).status,'Unavailable');const empty=fs.mkdtempSync(path.join(os.tmpdir(),'capacity-'));const local=JSON.stringify(readPlanCapacity(empty));assert.match(local,/Plan usage unavailable through a supported local source/);assert.equal(/token|cookie|password|credential/i.test(JSON.stringify(value)),false);});
 test('hero copy remains fixed for one dashboard session',()=>{const input={now:new Date('2026-08-13T09:00:00'),summary:{activity:[{agent:'Claude'},{agent:'Codex'}],tokens:{}},resources:{},capabilities:[]},first=sessionOverviewCopy('',input),later=sessionOverviewCopy('Keep this exact line',{...input,now:new Date('2026-08-13T23:00:00')});assert.ok(first);assert.equal(later,'Keep this exact line');});
+test('resume ranking prefers pins and waiting agents over recency alone',()=>{
+  const now=Date.parse('2026-08-13T12:00:00Z');
+  const pinned={id:'project:pin',name:'Pinned',pinned:true,status:null,git:{}};
+  const waiting={id:'project:wait',name:'Waiting',pinned:false,status:'Active',git:{}};
+  const archived={id:'project:old',name:'Archived',pinned:false,status:'Archived',git:{}};
+  const sessions=[
+    {projectId:'project:wait',agent:'Claude',timestamp:'2026-08-13T11:00:00Z',attributionConfidence:'Confirmed'},
+    {projectId:'project:old',agent:'Codex',timestamp:'2026-08-13T11:50:00Z',attributionConfidence:'Confirmed'}
+  ];
+  const ranked=rankResumeCandidates([waiting,pinned,archived],sessions,{liveStates:{Claude:{state:'Waiting for You'}},now,limit:5});
+  assert.equal(ranked[0].project.id,'project:pin');
+  assert.equal(ranked.find(item=>item.project.id==='project:wait').waiting,true);
+  assert.equal(ranked.some(item=>item.project.id==='project:old'),false);
+});
+test('last agent and observed context never include prompts',()=>{
+  const project={id:'project:a',name:'Alpha',git:{branch:'main',lastCommitSubject:'Ship resume cards',dirty:true,recentFiles:['src/app.js']}};
+  const sessions=[{projectId:'project:a',agent:'Codex',timestamp:'2026-08-13T10:00:00Z',attributionConfidence:'Confirmed',prompt:'never'}];
+  const last=lastSessionForProject(sessions,'project:a');
+  const text=observedContext({project,lastAgent:last.agent,agentState:{state:'Working'}});
+  assert.equal(last.agent,'Codex');
+  assert.match(text,/Codex/);
+  assert.match(text,/main/);
+  assert.match(text,/Ship resume cards/);
+  assert.doesNotMatch(text,/never|prompt|transcript/i);
+});
+test('handoff markdown is compact, includes path, and strips secrets',()=>{
+  const markdown=projectHandoff({
+    name:'Alpha',
+    canonicalPath:'/tmp/alpha',
+    status:'Active',
+    note:'Finish private QA.',
+    git:{branch:'feat/resume',lastCommitHash:'abc123',lastCommitSubject:'Add operator surface',dirty:true,recentFiles:['src/resume.js','.env','secrets/token.json']}
+  },{lastAgent:'Claude',agentState:{state:'Waiting for You'},capabilities:[{name:'investigate'}],includeNote:false});
+  assert.match(markdown,/Path: \/tmp\/alpha/);
+  assert.match(markdown,/Last Agent: Claude/);
+  assert.match(markdown,/feat\/resume/);
+  assert.match(markdown,/src\/resume\.js/);
+  assert.doesNotMatch(markdown,/\.env|token\.json|Finish private QA|prompt|transcript/i);
+});
+test('open-agent constructs Cursor and Codex commands and reports missing Claude',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'open-'));
+  const detected={platform:'darwin',Claude:{available:false,binary:null},Codex:{available:true,binary:'/opt/homebrew/bin/codex',kind:'cli'},Cursor:{available:true,binary:'/usr/local/bin/cursor',kind:'gui'}};
+  const cursor=openAgentCommand('Cursor',dir,detected);
+  const codex=openAgentCommand('Codex',dir,detected);
+  const claude=openAgentCommand('Claude',dir,detected);
+  assert.equal(cursor.ok,true);
+  assert.deepEqual(cursor.argv,['/usr/local/bin/cursor',dir]);
+  assert.equal(codex.ok,true);
+  assert.equal(codex.argv[0],'osascript');
+  assert.match(codex.argv.at(-1),/codex/);
+  assert.equal(claude.ok,false);
+  assert.match(claude.reason,/Claude Code CLI is not installed/);
+});
+test('Start Here continues a waiting agent and stays honest about unknown quota',()=>{
+  const waiting=startHereRecommendation({lastAgent:'Cursor',agentState:{state:'Waiting for You'}});
+  const lastCodex=startHereRecommendation({lastAgent:'Codex',capacity:{providers:[{provider:'Codex',status:'Available',windows:[{label:'Weekly',remainingPercent:61}]}]}});
+  const lastClaude=startHereRecommendation({lastAgent:'Claude',capacity:{providers:[{provider:'Codex',status:'Available',windows:[{label:'Weekly',remainingPercent:61}]}]}});
+  assert.equal(waiting.agent,'Cursor');
+  assert.match(waiting.reason,/waiting for you/);
+  assert.equal(lastCodex.agent,'Codex');
+  assert.match(lastCodex.reason,/61%/);
+  assert.equal(lastClaude.agent,'Claude');
+  assert.match(lastClaude.reason,/plan capacity is unknown locally/);
+  assert.doesNotMatch(lastClaude.reason,/\$|USD|billed/i);
+});
+test('project roots can be configured and classify capabilities under those roots',()=>{
+  const a=fixture(),b=fixture();
+  const roots=resolveProjectRoots({env:{AI_DASHBOARD_PROJECTS_ROOT:`${a}:${b}`},homedir:'/tmp'});
+  assert.deepEqual(roots,[a,b]);
+  const projects=discoverProjects(roots);
+  assert.equal(projects.length,2);
+  const classified=classifyCapability({name:'Local skill',type:'Agent Skill',location:`${a}/alpha/.claude/skills/x/SKILL.md`},roots);
+  assert.equal(classified.scope,'Project-specific');
+});
+test('observedModel reads later JSONL rows rather than only the first record',()=>{
+  assert.equal(observedModel({message:{}}),null);
+  assert.equal(observedModel({message:{model:'claude-opus-4'}}).model,'claude-opus-4');
+  assert.equal(observedModel({payload:{model:'gpt-5'}}).model,'gpt-5');
+  assert.equal(observedModel({model:'auto'}),null);
+});
+test('derive uses a cheap git snapshot and does not walk LOC',()=>{
+  const root=fixture(),project=discoverProjects(root)[0];
+  assert.equal(project.git.locDeferred,true);
+  assert.equal(gitSnapshot(project.canonicalPath).linesMeasured,undefined);
+  const result=derive({projects:[project],capabilities:[],capabilityUsageEvents:[],errors:[],sources:{projectsRoot:root},sessions:[]});
+  assert.equal(result.projects[0].metrics.locDeferred,true);
+  assert.equal(result.projects[0].metrics.linesMeasured,undefined);
+});
+test('share preview snapshots do not persist to disk',()=>{
+  const dir=fs.mkdtempSync(path.join(os.tmpdir(),'preview-')),now=new Date(),index={summary:{agents:['Claude']},sessions:[{agent:'Claude',timestamp:now.toISOString(),tokens:{freshInput:4}}],efficiency:{components:{}},capabilityUsageEvents:[]};
+  createSnapshot(index,['sessions'],'1:1',dir,'month',{},{persist:false});
+  assert.equal(fs.readdirSync(dir).length,0);
+  const saved=createSnapshot(index,['sessions'],'1:1',dir,'month',{},{persist:true});
+  assert.equal(fs.existsSync(path.join(dir,`${saved.id}.json`)),true);
+});
+test('achievement badges map to sliced PNG artwork families',()=>{
+  const earned=achievementsFor({sessions:[{agent:'Claude',timestamp:'2026-08-01T00:00:00Z'},{agent:'Codex',timestamp:'2026-08-02T00:00:00Z'},{agent:'Claude',timestamp:'2026-08-03T00:00:00Z'},{agent:'Codex',timestamp:'2026-08-04T00:00:00Z'},{agent:'Claude',timestamp:'2026-08-05T00:00:00Z'},{agent:'Codex',timestamp:'2026-08-06T00:00:00Z'},{agent:'Claude',timestamp:'2026-08-07T00:00:00Z'}],summary:{capabilityUses:3}});
+  const multi=earned.find(item=>item.id==='multi-agent-builder');
+  assert.equal(multi.badge.kind,'artwork-png');
+  assert.equal(multi.family,'multi-agent-mastery');
+  assert.match(multi.badge.assetSlot,/assets\/achievements\/multi-agent-mastery\/bronze\.png/);
+  assert.equal(fs.existsSync(path.join(process.cwd(),'public',multi.badge.assetSlot)),true);
+});
+test('cursor live allowlist accepts WAL and agent-tools mtime and ignores MCP JSON',()=>{
+  assert.equal(isCursorLivePath('/Users/x/Library/Application Support/Cursor/User/globalStorage/state.vscdb-wal'),true);
+  assert.equal(isCursorLivePath('/Users/x/.cursor/projects/foo/agent-tools/call.json'),true);
+  assert.equal(isCursorLivePath('/Users/x/.cursor/projects/foo/agent-transcripts/session.jsonl'),true);
+  assert.equal(isCursorLivePath('/Users/x/.cursor/projects/foo/mcps/config.json'),false);
+  assert.equal(isCursorLivePath('/Users/x/.cursor/projects/foo/canvases/board.json'),false);
+  const source=fs.readFileSync(path.join(process.cwd(),'src','cli.js'),'utf8')+fs.readFileSync(path.join(process.cwd(),'src','live-files.js'),'utf8');
+  assert.doesNotMatch(source,/better-sqlite|sql\.js|sqlite3|new Database/i);
+  const wal=sessionFileSignal({agent:'Cursor',timestamp:1_000_000,previousSize:4096,size:4096});
+  assert.equal(wal.bytesAdded,0);
+  assert.ok(activityEventWeight(wal)>=1);
+});
+test('maintenance surfaces duplicates without turning unused capabilities into an app store',()=>{
+  const groups=maintenanceGroups([
+    {id:'a',name:'Investigate',groupKey:'skill:investigate-a',type:'Skills',scope:'Shared',artifactState:'Complete',health:'No observed use',updateStatus:'Update status unknown',agentCoverage:[]},
+    {id:'b',name:'Investigate',groupKey:'skill:investigate-b',type:'Skills',scope:'Shared',artifactState:'Complete',health:'No observed use',updateStatus:'Update status unknown',agentCoverage:[]},
+    {id:'c',name:'Broken skill',type:'Skills',scope:'Shared',artifactState:'Broken',health:'No observed use',updateStatus:'Update status unknown',agentCoverage:[]}
+  ]);
+  assert.equal(groups.duplicates.length,2);
+  assert.equal(groups.needsAction.length,1);
+  const ui=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
+  assert.match(ui,/Usage review/);
+  assert.match(ui,/does not install or sync skills/);
+});
+test('overview is an operator surface with resume, needs you, and start here',()=>{
+  const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
+  assert.match(source,/Needs You/);
+  assert.match(source,/Continue Working/);
+  assert.match(source,/Start Here/);
+  assert.match(source,/Resume Context/);
+  assert.match(source,/preview:true/);
+  assert.match(source,/laneH/);
+  assert.match(source,/#2EE6C3/);
+});
+

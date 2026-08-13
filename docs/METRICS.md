@@ -19,13 +19,13 @@ Missing fields remain unavailable/zero in their category. A zero never means a p
 
 **Confirmed** project attribution uses a recorded session `cwd` that falls inside a discovered Git root. **Strongly inferred** attribution uses a deterministic encoded Cursor/Claude project folder. Weak/Unknown sessions remain visible in global counts but do not affect project headlines or comparable efficiency.
 
-Tokens per session, cache-read ratio and tools per session compare rolling 30-day periods only when both periods have at least three eligible observations and identical definitions. Git changes and LOC are descriptive context, never productivity scores.
+Tokens per session, cache-read ratio and tools per session compare rolling 30-day periods only when both periods have at least three eligible observations and identical definitions. Git branch, HEAD subject, dirty state and commit count are captured on each scan. LOC walks are not part of the scan path; they remain an optional descriptive helper, never a productivity score.
 
 ## Live activity monitor and system resources
 
 **Activity** is a visualisation of timestamped local session events—not model compute, effort, token throughput, or user presence. Each event retains its deterministic observed weight. For presentation, that real event becomes a short signal envelope with a 180 ms attack and 7.5-second exponential decay. Envelopes from repeated events add together, so sustained real updates create denser regions. The Canvas samples those envelopes across a rolling 45-second field as closely spaced vertical micro-bars; one telemetry event can therefore produce many visual bars without becoming many analytics events.
 
-The bar field has two explicitly separate inputs. **Activity modulation** uses only the real event envelopes and a bounded display gain of `tanh(0.52 × envelope energy)`. **Baseline carrier** is a low-amplitude deterministic sine carrier that only indicates the display is alive. It never changes state, intensity, or timing. There are no random activity bursts. Claude, Codex and Cursor share the same field with three-pixel visual center offsets, allowing their colored bars to layer and intersect. Age-based opacity and envelope decay create the trailing wake. Reduced-motion mode replaces the moving carrier with a constant low baseline while retaining real-event bars and text state.
+The bar field has two explicitly separate inputs. **Activity modulation** uses only the real event envelopes and a bounded display gain of `tanh(0.52 × envelope energy)`. **Baseline carrier** is a low-amplitude deterministic sine carrier that only indicates the display is alive. It never changes state, intensity, or timing. There are no random activity bursts. Claude, Codex and Cursor occupy separate vertical lanes so their traces do not hide each other. Age-based opacity and envelope decay create the trailing wake. Reduced-motion mode replaces the moving carrier with a constant low baseline while retaining real-event bars and text state.
 
 The resource strip is intentionally separate from agent activity. On macOS it reports working RAM from `vm_stat` active + wired + compressed pages, host CPU utilisation derived from deltas in Node's `os.cpus()` time counters, and this dashboard server's RSS/process CPU. These are host/system values, not attributable AI consumption. The backend samples every two seconds; working RAM refreshes every five seconds. A single cache-disabled `/api/live-state` poll delivers system resources and the compact agent-event ring to the browser every two seconds. Historical scanner state is not involved. Missing telemetry displays as unavailable.
 
@@ -44,7 +44,15 @@ Browser-local timing begins only when this state tracker first runs. A versioned
 
 ### Live signal sources
 
-The initial monitor used only session-summary timestamps, which could arrive too late to indicate a currently active response. It now also holds a 60-second in-memory ring of actual filesystem watch events. The backend checks the known live files every 1.5 seconds and the browser requests the compact live snapshot every two seconds. Claude activity comes from modified `.claude/projects/**/*.jsonl` session files; Codex from modified `.codex/sessions/**/*.jsonl` files; Cursor from modified `.cursor/projects/**/agent-transcripts/*.{json,jsonl}` files. A file update has a deterministic base weight plus a capped log-scale byte-growth contribution. It is evidence of local session output/activity, not remote compute. If a provider does not write one of these sources while it is working, its trace remains idle rather than being fabricated.
+The backend checks the known live files every 1.5 seconds and the browser requests the compact live snapshot every two seconds. Claude activity comes from modified `.claude/projects/**/*.jsonl` session files; Codex from modified `.codex/sessions/**/*.jsonl` files. Cursor activity is taken from **mtime/size only** on:
+
+- `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb-wal` (and `state.vscdb`)
+- `~/.cursor/projects/**/agent-tools/*`
+- `~/.cursor/projects/**/agent-transcripts/*.{json,jsonl}` when those files exist
+
+Cursor agent-transcripts are often empty while a current agent is working, so transcripts are not required. A WAL mtime change with unchanged size still counts as one event. The dashboard never parses SQLite, WAL payloads, or transcript bodies. `canvases/`, `mcps/`, and `node_modules` are ignored. A file update has a deterministic base weight plus a capped log-scale byte-growth contribution. It is evidence of local session output/activity, not remote compute.
+
+The live field draws **separate lanes** for Claude, Codex and Cursor instead of overlapping 3px traces, and Cursor uses a higher-contrast teal so it does not disappear into Claude’s idle carrier.
 
 The live-pipeline repair also corrected the Canvas clock: `requestAnimationFrame` supplies a page-relative timestamp, while agent events use Unix epoch timestamps. The monitor now uses `Date.now()` when computing event age. Comparing those two clock domains previously made every genuine live event appear impossibly old and forced traces to baseline.
 

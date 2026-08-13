@@ -19,6 +19,15 @@ No code, bundled asset, parser, database, or license-controlled content from the
 
 The evaluated projects highlight a key distinction retained here: API-equivalent estimates and subscription usage are not the same thing. This dashboard does not calculate subscription cost or quota utilization.
 
+## What this dashboard will not clone
+
+After the operator/resume pass, unused-capability review stays collapsed. Duplicate and partial/broken installation signals are the only capability-hygiene work this product takes on.
+
+- **Skiller** remains the installer/sync product. This dashboard inventories capabilities and does not install, sync, or rewrite skill files. A future integration would open or compare with Skiller rather than duplicating its manager UI.
+- **CodeBurn** remains the token/cost/waste product. This dashboard keeps project-first identity, conservative capability taxonomy, and resume/handoff. It will not grow an optimize/waste engine or a 40-tool cost parser.
+
+If a user needs skill installation or token-cost analysis, point them at those tools. Do not copy their product surface into this repo.
+
 ## Phase 2 rendering decision
 
 No image-rendering or export library was added. Share cards are compact SVG generated from a frozen local `ShareSnapshot`; the browser converts that local SVG to PNG when requested. This avoids a native renderer, cloud image API, or an additional supply-chain dependency while retaining exact 1:1, 4:5, 9:16 and 16:9 dimensions.
