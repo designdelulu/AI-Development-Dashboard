@@ -25,3 +25,7 @@ The configured root contains a mix of standalone Git repositories, nested reposi
 ## CLI availability
 
 Node 20.19.5, npm, Git, SQLite CLI, Claude, Codex and Cursor CLIs were present. The dashboard has no runtime dependency beyond Node/Git and does not require global installation or database server.
+
+## VS Code historical AI data
+
+VS Code is installed. Safe inventory found installed AI-related extensions including GitHub Copilot Chat support, Claude Code, OpenAI ChatGPT and Continue, plus VS Code global/workspace SQLite state. The state databases are not parsed: this audit found no documented, stable local AI-session transcript format that would permit safe project attribution without reading opaque extension state. Consequently VS Code is represented as an editor host with detected AI extensions, not as an AI agent and not as historical AI activity. Future adapters should ingest only structured, versioned extension telemetry with explicit agent, timestamp and workspace evidence.

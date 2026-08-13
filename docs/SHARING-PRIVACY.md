@@ -17,6 +17,12 @@ A `ShareSnapshot` freezes selected public-safe values, metric-definition version
 
 Future optional links must upload only an explicitly approved ShareSnapshot, never source code, raw sessions, source files, private paths or credentials. Sharing must remain opt-in per snapshot.
 
+## Setup Prompt and future import
+
+The Setup Prompt is generated from the current normalized parent-capability registry at request time. It includes public-safe names, safe descriptions, agent compatibility and sources; it excludes private/local-only capabilities, paths, prompts, credentials and project data. It directs a receiving agent to audit, compare, preserve, preview and validate rather than install blindly.
+
+Future Import Stack flow: audit target machine → compare installed capabilities → classify already-installed/missing/version-different/conflict/unsupported → preview plan → user approves → apply → validate. The manifest and Setup Prompt are inputs to the same safety model, never executable installation instructions.
+
 ## Future story/video
 
 The same snapshot/card schema supports 9:16 stories. A future renderer should prefer browser animation capture or Remotion if a repeatable video workflow is justified; it must consume snapshots, not live private telemetry.

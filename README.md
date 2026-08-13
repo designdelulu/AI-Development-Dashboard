@@ -20,6 +20,8 @@ Open `http://127.0.0.1:4177`. The server binds only to loopback. Press **Rescan*
 - Attributes sessions to a project from recorded working directory, with visible confidence.
 - Separates fresh input, output, cache-read and cache-creation token fields; it never labels their sum as subscription “tokens used.”
 - Confirms capability use only from structured metadata and supports local-safe stack/manifest/private-inventory exports plus frozen share-card snapshots.
+- Groups raw skill/plugin/command references into recognizable parent capabilities and keeps components available as an advanced audit view.
+- Refreshes automatically at startup and after local source changes; the interface shows a subtle live/update state instead of making scanning a primary workflow.
 - Reuses unchanged session summaries using source size + modification-time checkpoints; large transcripts are read only as bounded metadata prefixes.
 - Discovers skills and instructions across user/project Claude, Codex and Cursor locations as capability references.
 - Calculates descriptive Git changes, commit counts and measured text-line counts.
@@ -39,7 +41,7 @@ No network request is made by the scanner or server. The generated `.dashboard-d
 
 Reliable now: session count, available usage fields, model if exposed, tool-call/context signals if exposed, Git metadata, capability installation/configuration references, and session/project confidence. Context signals are observations of `compact`/summary events, not a universal compaction metric.
 
-Not reliable yet: Cursor token usage in this local record format, completed-task attribution, accepted changes, rework/reverts, subscription quotas, capability-use proof, and cross-period efficiency comparison. The UI intentionally labels these gaps instead of manufacturing a score.
+Not reliable yet: Cursor token usage in this local record format, completed-task attribution, accepted changes, rework/reverts, subscription quotas, third-party update availability, and automated capability modification. The UI intentionally labels these gaps instead of manufacturing a score.
 
 ## Development
 
