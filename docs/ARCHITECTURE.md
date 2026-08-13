@@ -20,7 +20,7 @@ The index records file paths, file fingerprints, timestamps, compact counters an
 
 ## Live refresh
 
-The local server scans once at startup, watches the configured local source roots with a 1.8-second debounce, and performs a five-minute fallback incremental check. Session files retain their source fingerprint, so unchanged transcripts are reused rather than reparsed. The browser checks the normalized index every 15 seconds and redraws only after a new index timestamp. A mostly idle dashboard performs no repeated transcript parsing; a watcher event triggers an incremental scan. Git-derived project metrics are refreshed only with that scan.
+The local server scans once at startup, watches the configured local source roots with a 7.5-second debounce, and performs a five-minute fallback incremental check. Session files retain their source fingerprint, so unchanged transcripts are reused rather than reparsed. The browser checks the normalized index every 15 seconds and redraws only after a new index timestamp. A mostly idle dashboard performs no repeated transcript parsing; a watcher event triggers an incremental scan. Git-derived project metrics are refreshed only with that scan.
 
 ## Interface rationale
 
@@ -32,7 +32,7 @@ Raw discovered files remain auditable as components. The normal interface groups
 
 ### Taxonomy, installation and maintenance
 
-The user-facing registry classifies a parent capability by **type** (Skills, Tools, Integrations or Instructions) and orthogonal **scope** (Shared, Custom or Project-specific). Instructions are deliberately not presented as interchangeable with portable procedural skills. These labels derive from deterministic artifact location/type evidence; unknown categories remain conservative.
+The user-facing registry classifies a parent capability by **type** (Skills, Tools, Integrations, Automations or Instructions) and orthogonal **scope** (Shared, User / Global, Custom or Project-specific). Instructions and native automatic behaviors are deliberately not presented as interchangeable with portable procedural skills. These labels derive from deterministic artifact location/type evidence; unknown categories remain conservative.
 
 Artifact completeness and agent coverage are distinct. `Complete` is emitted only when a known simple structure is present (for example, a skill directory contains `SKILL.md`); `Broken` only when a known expected artifact is absent; otherwise the artifact state is `Unknown`. Agent coverage states are Installed, Not installed, Unsupported, or Compatibility unknown. This release only emits “Not installed” when reliable compatibility evidence exists, never merely because another agent lacks the item.
 
@@ -45,6 +45,10 @@ Pins, status and note live in `.dashboard-data/project-metadata.json`, keyed by 
 ## Agents and editors
 
 An agent/provider and its host are separate fields: e.g. Claude in Claude Code, Codex in Codex CLI, and Cursor in Cursor. VS Code is recorded as an editor host inventory only unless a future adapter finds a stable AI-session transcript format; ordinary editor state is never counted as AI activity.
+
+Native agent behaviors are represented as `Automation` capabilities, distinct from procedural Skills and from Hooks/Integrations. The first native automation adapter reads Claude Code's user-level `autoCompactEnabled` and `autoCompactWindow` settings without modifying them. Its normalized record retains agent, trigger, behavior, implementation, scope, active state, portability and a safe setup recipe; it is intentionally not a general rule engine.
+
+Live state has its own bounded transport. The scanner persists historical normalized data, while an in-memory resource sampler and 60-second agent-event ring are delivered through a cache-disabled `/api/live-state` endpoint. The browser polls that endpoint every two seconds. This keeps live UI updates independent of session-history rescans and provider authentication.
 
 ## Future directions
 
