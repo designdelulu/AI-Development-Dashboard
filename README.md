@@ -47,4 +47,4 @@ npm test
 npm run scan
 ```
 
-The tests use sanitized generated fixtures. See [architecture](docs/ARCHITECTURE.md) and [reuse decisions](docs/REUSE-DECISIONS.md).
+The tests use sanitized generated fixtures. See [environment audit](docs/ENVIRONMENT-AUDIT.md), [architecture](docs/ARCHITECTURE.md) and [reuse decisions](docs/REUSE-DECISIONS.md).
