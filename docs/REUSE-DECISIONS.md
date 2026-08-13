@@ -19,6 +19,10 @@ No code, bundled asset, parser, database, or license-controlled content from the
 
 The evaluated projects highlight a key distinction retained here: API-equivalent estimates and subscription usage are not the same thing. This dashboard does not calculate subscription cost or quota utilization.
 
+## Phase 2 rendering decision
+
+No image-rendering or export library was added. Share cards are compact SVG generated from a frozen local `ShareSnapshot`; the browser converts that local SVG to PNG when requested. This avoids a native renderer, cloud image API, or an additional supply-chain dependency while retaining exact 1:1, 4:5, 9:16 and 16:9 dimensions.
+
 ## Alternatives noticed
 
 CodeBurn is the current broadest direct alternative found. It may be the right standalone choice for a user who primarily needs usage/cost/waste analysis. This project exists because the target question is wider: canonical projects linked to agents, sessions, capability inventory and conservative maintenance evidence.

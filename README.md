@@ -18,7 +18,8 @@ Open `http://127.0.0.1:4177`. The server binds only to loopback. Press **Rescan*
 - Finds Git repositories below `~/Dropbox/Projects` as canonical projects.
 - Reads observed metadata from `~/.claude/projects`, `~/.codex/sessions`, and `~/.cursor/projects` through isolated adapters.
 - Attributes sessions to a project from recorded working directory, with visible confidence.
-- Captures token fields only when a transcript actually provides them; absent fields stay zero/unavailable.
+- Separates fresh input, output, cache-read and cache-creation token fields; it never labels their sum as subscription “tokens used.”
+- Confirms capability use only from structured metadata and supports local-safe stack/manifest/private-inventory exports plus frozen share-card snapshots.
 - Reuses unchanged session summaries using source size + modification-time checkpoints; large transcripts are read only as bounded metadata prefixes.
 - Discovers skills and instructions across user/project Claude, Codex and Cursor locations as capability references.
 - Calculates descriptive Git changes, commit counts and measured text-line counts.
@@ -47,4 +48,4 @@ npm test
 npm run scan
 ```
 
-The tests use sanitized generated fixtures. See [environment audit](docs/ENVIRONMENT-AUDIT.md), [architecture](docs/ARCHITECTURE.md) and [reuse decisions](docs/REUSE-DECISIONS.md).
+The tests use sanitized generated fixtures. See [environment audit](docs/ENVIRONMENT-AUDIT.md), [architecture](docs/ARCHITECTURE.md), [metrics](docs/METRICS.md), [sharing privacy](docs/SHARING-PRIVACY.md), [future benchmarks](docs/FUTURE-BENCHMARKS.md) and [reuse decisions](docs/REUSE-DECISIONS.md).
