@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { discoverProjects, derive, normalizeUsage, tokenActivity, capabilityUsageEvents, groupCapabilities, classifyCapability, maintenanceGroups, applyProjectMetadata, achievementsFor, ACHIEVEMENT_TIERS, discoverNativeAutomations, CONFIDENCE, observedModel, gitSnapshot } from '../src/core.js';
+import { discoverProjects, derive, normalizeUsage, tokenActivity, capabilityUsageEvents, groupCapabilities, classifyCapability, classifyRepository, maintenanceGroups, duplicateInvestigations, applyProjectMetadata, achievementsFor, ACHIEVEMENT_TIERS, discoverNativeAutomations, CONFIDENCE, observedModel, gitSnapshot } from '../src/core.js';
 import { AGENT_ASSETS, agentAsset, agentMarkScale, shareableStack, manifest, createSnapshot, shareCardSvg, setupPrompt, recapFor, publicMetricOptions, storyCardsFor } from '../src/sharing.js';
 import { defaultShareMetrics, updateSharePreferences } from '../public/share-controls.js';
 import { activityEventWeight, activityIntensityAt, activitySeries, activityMonitor, cpuUtilization, liveStateSnapshot, normalizeResources, sessionFileSignal } from '../src/activity.js';
@@ -179,11 +179,27 @@ test('maintenance surfaces duplicates without turning unused capabilities into a
     {id:'b',name:'Investigate',groupKey:'skill:investigate-b',type:'Skills',scope:'Shared',artifactState:'Complete',health:'No observed use',updateStatus:'Update status unknown',agentCoverage:[]},
     {id:'c',name:'Broken skill',type:'Skills',scope:'Shared',artifactState:'Broken',health:'No observed use',updateStatus:'Update status unknown',agentCoverage:[]}
   ]);
-  assert.equal(groups.duplicates.length,2);
+  assert.equal(groups.duplicates.length,1);
   assert.equal(groups.needsAction.length,1);
   const ui=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
   assert.match(ui,/Usage review/);
   assert.match(ui,/does not install or sync skills/);
+});
+test('tool and upstream repositories stay attributable but are excluded from primary projects',()=>{
+  const tool=classifyRepository({canonicalPath:'/Users/x/Dropbox/Projects/Tools/watermarks-remover'}),reference=classifyRepository({canonicalPath:'/Users/x/Dropbox/Projects/multistream/.upstream-reference'}),work=classifyRepository({canonicalPath:'/Users/x/Dropbox/Projects/Product'});
+  assert.equal(tool.repositoryClass,'Tool');assert.equal(reference.repositoryClass,'Reference');assert.equal(work.repositoryClass,'Project');
+  const decorated=applyProjectMetadata({repositories:[{id:'tool',name:'Tool',...tool},{id:'reference',name:'Reference',...reference},{id:'work',name:'Work',...work}],projects:[]},{projects:{tool:{repositoryClass:'Project'}}});
+  assert.deepEqual(decorated.projects.map(x=>x.id),['tool','work']);
+});
+test('capability detail aggregation and duplicate investigation avoid repeated raw rows',()=>{
+  const grouped=groupCapabilities([{id:'one',name:'Impeccable',type:'Agent Skill',origin:'Claude user',location:'/Users/x/.claude/skills/impeccable/SKILL.md',sourceHash:'same',sourceHashKind:'content'},{id:'two',name:'Impeccable',type:'Agent Skill',origin:'Claude user',location:'/Users/x/.claude/skills/impeccable/copy/SKILL.md',sourceHash:'same',sourceHashKind:'content'}],[])[0];
+  assert.equal(grouped.componentGroups.length,1);assert.equal(grouped.componentGroups[0].count,2);
+  const findings=duplicateInvestigations([{...grouped,id:'a',groupKey:'skill:a'},{...grouped,id:'b',groupKey:'skill:b'}]);
+  assert.equal(findings[0].kind,'Exact duplicate');assert.equal(findings[0].items.length,2);
+});
+test('registry defaults keep instructions out of reusable functionality and preserve back navigation',()=>{
+  const ui=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
+  assert.match(ui,/All functionality/);assert.match(ui,/instructionsByScope/);assert.match(ui,/data-back="capabilities"/);assert.match(ui,/Repository type/);
 });
 test('overview is an operator surface with resume, needs you, and start here',()=>{
   const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');

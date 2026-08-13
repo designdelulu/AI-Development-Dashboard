@@ -202,15 +202,15 @@ function serve() {
     }
     const metaMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/metadata$/);
     if (metaMatch && req.method === 'POST') {
-      const id = decodeURIComponent(metaMatch[1]), b = await body(req), known = index().projects.find((p) => p.id === id);
+      const id = decodeURIComponent(metaMatch[1]), b = await body(req), known = (index().repositories || index().projects).find((p) => p.id === id);
       if (!known) return json(res, { error: 'Project not found' }, 404);
       const metadata = projectMetadata(), current = metadata.projects[id] || {};
-      const next = { ...current, pinned: typeof b.pinned === 'boolean' ? b.pinned : Boolean(current.pinned), status: PROJECT_STATUSES.includes(b.status) ? b.status : (b.status === null ? null : current.status || null), note: typeof b.note === 'string' ? b.note.slice(0, 500) : current.note || '', canonicalPath: known.canonicalPath };
-      if (!next.pinned && !next.status && !next.note) delete metadata.projects[id];
+      const next = { ...current, pinned: typeof b.pinned === 'boolean' ? b.pinned : Boolean(current.pinned), status: PROJECT_STATUSES.includes(b.status) ? b.status : (b.status === null ? null : current.status || null), note: typeof b.note === 'string' ? b.note.slice(0, 500) : current.note || '', repositoryClass: ['Project','Tool','Reference','Unknown','Hidden'].includes(b.repositoryClass) ? b.repositoryClass : current.repositoryClass || null, canonicalPath: known.canonicalPath };
+      if (!next.pinned && !next.status && !next.note && !next.repositoryClass) delete metadata.projects[id];
       else metadata.projects[id] = next;
       saveProjectMetadata(metadata);
       liveIndex = decorate({ ...index(), summary: { ...index().summary, lastScanAt: index().summary.lastScanAt } });
-      return json(res, liveIndex.projects.find((p) => p.id === id));
+      return json(res, (liveIndex.repositories || liveIndex.projects).find((p) => p.id === id));
     }
     const handoffMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/handoff$/);
     if (handoffMatch && req.method === 'POST') {
