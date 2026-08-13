@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 import { discoverProjects, derive, normalizeUsage, tokenActivity, capabilityUsageEvents, groupCapabilities, classifyCapability, classifyRepository, maintenanceGroups, duplicateInvestigations, applyProjectMetadata, achievementsFor, ACHIEVEMENT_TIERS, discoverNativeAutomations, CONFIDENCE, observedModel, gitSnapshot } from '../src/core.js';
@@ -200,6 +201,17 @@ test('capability detail aggregation and duplicate investigation avoid repeated r
 test('registry defaults keep instructions out of reusable functionality and preserve back navigation',()=>{
   const ui=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
   assert.match(ui,/All functionality/);assert.match(ui,/instructionsByScope/);assert.match(ui,/data-back="capabilities"/);assert.match(ui,/Repository type/);
+});
+test('the browser entry module parses before it is served',()=>{
+  const entry=path.join(process.cwd(),'public','app.js');
+  assert.doesNotThrow(()=>execFileSync(process.execPath,['--check',entry],{stdio:'pipe'}));
+});
+test('utility launchers stay usable as drawer toggles',()=>{
+  const ui=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
+  const css=fs.readFileSync(path.join(process.cwd(),'public','overrides.css'),'utf8');
+  assert.match(ui,/classList\.add\('utility-open'\)/);
+  assert.match(ui,/classList\.remove\('utility-open'\)/);
+  assert.match(css,/body\.utility-open \.actions/);
 });
 test('overview is an operator surface with resume, needs you, and start here',()=>{
   const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
