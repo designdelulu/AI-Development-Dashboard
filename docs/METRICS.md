@@ -27,4 +27,12 @@ Tokens per session, cache-read ratio and tools per session compare rolling 30-da
 
 The resource strip is intentionally separate from agent activity. On macOS it reports working RAM from `vm_stat` active + wired + compressed pages (cached for 30 seconds), host CPU utilisation derived from deltas in Node's `os.cpus()` time counters, and this dashboard server's RSS/process CPU. These are host/system values, not attributable AI consumption. The server samples CPU/process data every 10 seconds in memory; the browser reads the cached sample on the same cadence. Missing telemetry displays as unavailable.
 
-The canvas redraw is capped at roughly 10 frames per second and retains only compact recent timestamps in the browser. Source watching remains incremental: it debounces for 1.8 seconds, ignores the dashboard's own derived data, and falls back to a five-minute checkpoint refresh. It never continuously rescans session histories to animate the monitor.
+The canvas redraw is capped at roughly 10 frames per second and retains only compact recent timestamps in the browser. Source watching remains incremental: it waits for 7.5 seconds of local source quiet before a heavier index refresh, ignores the dashboard's own derived data, and falls back to a five-minute checkpoint refresh. It never continuously rescans session histories to animate the monitor.
+
+### Live signal sources
+
+The initial monitor used only session-summary timestamps, which could arrive too late to indicate a currently active response. It now also holds a 60-second in-memory ring of actual filesystem watch events and the browser polls that compact ring every 1.5 seconds. Claude activity comes from modified `.claude/projects/**/*.jsonl` session files; Codex from modified `.codex/sessions/**/*.jsonl` files; Cursor from modified `.cursor/projects/**/agent-transcripts/*.{json,jsonl}` files. A file update has a deterministic base weight plus a capped log-scale byte-growth contribution. It is evidence of local session output/activity, not remote compute. If a provider does not write one of these sources while it is working, its trace remains idle rather than being fabricated.
+
+## Share recap periods
+
+Share Stats filters public-safe metrics to **Today**, **This Month**, or **Since tracking began**. “Since tracking began” starts at the earliest timestamp in the dashboard’s available local session records; it does not claim complete pre-dashboard history. Each frozen `ShareSnapshot` records its period boundaries and title. A metric is omitted when it has no evidence in the selected period.
