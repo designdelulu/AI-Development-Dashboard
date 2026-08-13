@@ -23,8 +23,8 @@ export function recentCapabilitiesForProject(index, projectId, limit = 4) {
   return ranked;
 }
 
-export function liveStatesFromEvents(events = [], agents = ['Claude', 'Codex', 'Cursor'], now = Date.now()) {
-  return Object.fromEntries(agents.map((agent) => [agent, classifyAgentState(events, agent, now, { sourceKnown: true })]));
+export function liveStatesFromEvents(events = [], agents = ['Claude', 'Codex', 'Cursor'], now = Date.now(), attentionSignals = {}) {
+  return Object.fromEntries(agents.map((agent) => [agent, classifyAgentState(events, agent, now, { sourceKnown: true, attention: attentionSignals[agent] || null })]));
 }
 
 export function rankResumeCandidates(projects = [], sessions = [], { liveStates = {}, now = Date.now(), limit = 5 } = {}) {
@@ -32,7 +32,7 @@ export function rankResumeCandidates(projects = [], sessions = [], { liveStates 
     const last = lastSessionForProject(sessions, project.id);
     const lastAgent = last?.agent || null;
     const agentState = lastAgent ? liveStates[lastAgent] : null;
-    const waiting = agentState?.state === 'Waiting for You';
+    const waiting = agentState?.state === 'Needs You';
     const working = agentState?.state === 'Working';
     const recency = last?.timestamp ? Math.max(0, now - new Date(last.timestamp).getTime()) : Number.POSITIVE_INFINITY;
     const gitRecency = project.git?.lastCommitAt ? Math.max(0, now - new Date(project.git.lastCommitAt).getTime()) : Number.POSITIVE_INFINITY;
@@ -63,8 +63,9 @@ export function observedContext(card = {}, { now = Date.now() } = {}) {
   if (git.dirty === true) parts.push('Working tree has uncommitted changes.');
   else if (git.dirty === false) parts.push('Working tree clean.');
   const state = card.agentState?.state;
-  if (state === 'Waiting for You' && agent) parts.push(`${agent} is currently waiting for you.`);
+  if (state === 'Needs You' && agent) parts.push(`${agent} needs your attention.`);
   else if (state === 'Working' && agent) parts.push(`${agent} is currently working.`);
+  else if (state === 'Recently Active' && agent) parts.push(`${agent} was recently active.`);
   void now;
   return parts.join(' ') || 'No recent observed project activity.';
 }
@@ -81,8 +82,8 @@ export function startHereRecommendation({ lastAgent = null, agentState = null, c
   const weekly = weeklyCodexWindow(capacity);
   const remaining = weekly && Number.isFinite(Number(weekly.remainingPercent)) ? Math.round(weekly.remainingPercent) : null;
 
-  if (agentState?.state === 'Waiting for You' && lastAgent && available(lastAgent)) {
-    return { agent: lastAgent, reason: `${lastAgent} is waiting for you on this project.` };
+  if (agentState?.state === 'Needs You' && lastAgent && available(lastAgent)) {
+    return { agent: lastAgent, reason: `${lastAgent} needs your attention on this project.` };
   }
   if (lastAgent === 'Codex' && remaining != null && available('Codex')) {
     return { agent: 'Codex', reason: `Codex was the last agent used on this project and has ${remaining}% of its weekly capacity remaining.` };
@@ -148,7 +149,7 @@ export function projectHandoff(project, {
 }
 
 export function needsYou(projects = [], sessions = [], liveStates = {}, now = Date.now()) {
-  const waitingAgents = Object.entries(liveStates).filter(([, state]) => state?.state === 'Waiting for You').map(([agent, state]) => ({ agent, state }));
+  const waitingAgents = Object.entries(liveStates).filter(([, state]) => state?.state === 'Needs You').map(([agent, state]) => ({ agent, state }));
   if (!waitingAgents.length) return [];
   return waitingAgents.map(({ agent, state }) => {
     const recent = [...sessions]
@@ -205,8 +206,8 @@ export function decorateResumeCards(cards, index, { capacity = null, availableAg
   });
 }
 
-export function buildOperator(index, events = [], capacity = null, { now = Date.now(), availableAgents = ['Claude', 'Codex', 'Cursor'] } = {}) {
-  const liveStates = liveStatesFromEvents(events, ['Claude', 'Codex', 'Cursor'], now);
+export function buildOperator(index, events = [], capacity = null, { now = Date.now(), availableAgents = ['Claude', 'Codex', 'Cursor'], attentionSignals = {} } = {}) {
+  const liveStates = liveStatesFromEvents(events, ['Claude', 'Codex', 'Cursor'], now, attentionSignals);
   const cards = decorateResumeCards(
     rankResumeCandidates(index.projects || [], index.sessions || [], { liveStates, now, limit: 5 }),
     index,

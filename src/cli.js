@@ -7,6 +7,7 @@ import { createSystemSampler, liveStateSnapshot, sessionFileSignal } from './act
 import { readPlanCapacity } from './capacity.js';
 import { shareableStack, manifest, privateInventory, publicMetricOptions, createSnapshot, shareCardSvg, setupPrompt } from './sharing.js';
 import { isLiveActivityPath } from './live-files.js';
+import { structuredAttentionFromFile } from './live-attention.js';
 import { loadSettings, saveSettings } from './config.js';
 import { buildOperator, lastSessionForProject, liveStatesFromEvents, projectHandoff, recentCapabilitiesForProject } from './resume.js';
 import { detectAgents, launchAgent, openAgentCommand } from './open-agent.js';
@@ -20,7 +21,7 @@ const snapshotsDir = path.join(dataDir, 'snapshots');
 let liveIndex = null, lastReason = 'starting', refreshing = false;
 const sampleSystem = createSystemSampler();
 let latestSystem = sampleSystem(), latestCapacity = readPlanCapacity();
-const liveActivityEvents = [], liveFileSizes = new Map(), liveFiles = new Map(), previewSnapshots = new Map();
+const liveActivityEvents = [], liveFileSizes = new Map(), liveFiles = new Map(), attentionSignals = new Map(), previewSnapshots = new Map();
 
 function projectMetadata() { try { return JSON.parse(fs.readFileSync(projectMetaFile, 'utf8')); } catch { return { version: 1, projects: {} }; } }
 function saveProjectMetadata(metadata) { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(projectMetaFile, JSON.stringify(metadata, null, 2)); }
@@ -90,8 +91,13 @@ function recordLiveActivity(agent, source, filename) {
   const previous = liveFileSizes.get(candidate);
   const next = candidate ? (() => { try { const stat = fs.statSync(candidate); return { size: stat.size, mtimeMs: stat.mtimeMs }; } catch { return null; } })() : null;
   if (candidate && next && previous && next.size === previous.size && next.mtimeMs === previous.mtimeMs) return;
-  const signal = sessionFileSignal({ agent, timestamp: Date.now(), previousSize: previous?.size ?? next?.size ?? 0, size: next?.size ?? previous?.size ?? 0, kind: candidate ? 'session-file-update' : 'source-directory-update' });
+  const observedAt = Date.now(), attention = candidate ? structuredAttentionFromFile(agent, candidate, observedAt) : null;
+  const signal = sessionFileSignal({ agent, timestamp: observedAt, previousSize: previous?.size ?? next?.size ?? 0, size: next?.size ?? previous?.size ?? 0, kind: candidate ? 'session-file-update' : 'source-directory-update' });
   if (candidate && next != null) { liveFiles.set(candidate, agent); liveFileSizes.set(candidate, next); }
+  // A fresh structured task-complete marker is sticky while the same session is
+  // quiet. Any later local activity clears it—silence alone never creates it.
+  if (attention) attentionSignals.set(agent, attention);
+  else if (signal) attentionSignals.delete(agent);
   if (!signal) return;
   const mostRecent = liveActivityEvents.at(-1);
   if (mostRecent?.agent === signal.agent && mostRecent.kind === signal.kind && Date.now() - new Date(mostRecent.timestamp).getTime() < 350) liveActivityEvents[liveActivityEvents.length - 1] = signal;
@@ -136,7 +142,7 @@ function availableAgentNames() {
 }
 function liveState() {
   const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity });
-  snapshot.operator = buildOperator(index(), liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames().length ? availableAgentNames() : ['Claude', 'Codex', 'Cursor'] });
+  snapshot.operator = buildOperator(index(), liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames().length ? availableAgentNames() : ['Claude', 'Codex', 'Cursor'], attentionSignals: Object.fromEntries(attentionSignals) });
   snapshot.agents = detectAgents();
   return snapshot;
 }

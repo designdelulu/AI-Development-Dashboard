@@ -33,14 +33,17 @@ The canvas redraw is capped at 12.5 frames per second (8 in reduced-motion mode)
 
 ### Live agent states and timing
 
-All three adapters use the same conservative state rules over their validated local event sources:
+The operator deliberately separates current work, recent work, and a genuine request for attention:
 
 - **Working** — a real local event was observed within the previous 12 seconds. This is observed local busy activity, not remote model inference.
-- **Waiting for You** — the most recent event is 12 seconds to five minutes old. This is a strong interaction hint but remains explicitly **Inferred**: Claude, Codex and Cursor do not expose a reliable native “waiting for user” marker in the available local records.
+- **Needs You** — only a positive, structured attention marker can produce this state. It is never inferred from silence. Today, a newly observed Codex `event_msg` with `payload.type: task_complete` qualifies while no later Codex task start/user message has been recorded; the marker is held for up to 15 minutes or until later local agent activity clears it. This describes a local task-complete handoff, not remote model state.
+- **Recently Active** — the last observed local event is 12 seconds to five minutes old, with no qualifying attention marker. This is the normal state after an agent stops producing local activity.
 - **Idle** — no relevant event is available, or the most recent event is older than five minutes.
 - **Unknown** — the normalized index does not establish a supported local source for that agent.
 
-Browser-local timing begins only when this state tracker first runs. A versioned fixed-size record in local storage accumulates `observedWorkingMs`, `waitingForUserMs`, `observedIdleMs`, `unknownMs`, and `unobservedMs`, plus at most 96 recent state transitions. It never backfills historical durations. Tick gaps over five seconds—such as a suspended or closed tab—go to `unobservedMs` rather than being credited to a state. These measurements describe what the open dashboard observed and form a conservative foundation for future project/cycle attribution; they are not exact provider response or compute times.
+Claude's structured `assistant/end_turn` and Cursor's `turn_ended/success` records show that a turn ended, but neither safely proves a user action is required, so they remain Recently Active/Idle. Cursor's editor/WAL activity is never used for Needs You. The dashboard reads only bounded structural JSONL fields for the Codex marker—event type and payload type—not prompt, message, transcript, or tool-argument bodies.
+
+Browser-local timing begins only when this state tracker first runs. A versioned fixed-size record in local storage accumulates `observedWorkingMs`, `waitingForUserMs`, `recentlyActiveMs`, `observedIdleMs`, `unknownMs`, and `unobservedMs`, plus at most 96 recent state transitions. It never backfills historical durations. Tick gaps over five seconds—such as a suspended or closed tab—go to `unobservedMs` rather than being credited to a state. These measurements describe what the open dashboard observed and form a conservative foundation for future project/cycle attribution; they are not exact provider response or compute times.
 
 ### Live signal sources
 
