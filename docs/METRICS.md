@@ -20,3 +20,11 @@ Missing fields remain unavailable/zero in their category. A zero never means a p
 **Confirmed** project attribution uses a recorded session `cwd` that falls inside a discovered Git root. **Strongly inferred** attribution uses a deterministic encoded Cursor/Claude project folder. Weak/Unknown sessions remain visible in global counts but do not affect project headlines or comparable efficiency.
 
 Tokens per session, cache-read ratio and tools per session compare rolling 30-day periods only when both periods have at least three eligible observations and identical definitions. Git changes and LOC are descriptive context, never productivity scores.
+
+## Live activity monitor and system resources
+
+**Activity** is a visualisation of timestamped local session events—not model compute, effort, token throughput, or user presence. Every event contributes a deterministic weight of `1 + min(2, log2(tool calls + 1))` at its observed timestamp. The monitor samples a rolling 45-second window and decays each contribution exponentially with a 9-second decay constant. With no observed events, an agent trace settles to its baseline. The browser interpolates/decays these compact timestamps between index refreshes; it never creates random spikes or asks the scanner to reparse history for animation.
+
+The resource strip is intentionally separate from agent activity. On macOS it reports working RAM from `vm_stat` active + wired + compressed pages (cached for 30 seconds), host CPU utilisation derived from deltas in Node's `os.cpus()` time counters, and this dashboard server's RSS/process CPU. These are host/system values, not attributable AI consumption. The server samples CPU/process data every 10 seconds in memory; the browser reads the cached sample on the same cadence. Missing telemetry displays as unavailable.
+
+The canvas redraw is capped at roughly 10 frames per second and retains only compact recent timestamps in the browser. Source watching remains incremental: it debounces for 1.8 seconds, ignores the dashboard's own derived data, and falls back to a five-minute checkpoint refresh. It never continuously rescans session histories to animate the monitor.

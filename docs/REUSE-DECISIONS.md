@@ -23,6 +23,10 @@ The evaluated projects highlight a key distinction retained here: API-equivalent
 
 No image-rendering or export library was added. Share cards are compact SVG generated from a frozen local `ShareSnapshot`; the browser converts that local SVG to PNG when requested. This avoids a native renderer, cloud image API, or an additional supply-chain dependency while retaining exact 1:1, 4:5, 9:16 and 16:9 dimensions.
 
+## Agent-mark decision
+
+The live monitor uses small labeled internal geometric marks and restrained trace colours; it does not bundle provider logos. The official [Cursor brand page](https://cursor.com/en-US/brand) offers downloadable assets, but OpenAI's [brand guidance](https://openai.com/brand/) requires supplied marks to be used exactly, subordinate to the product's own mark, and only under its terms. No equally clear official Anthropic/Claude asset-and-usage source was verified in this pass. Avoiding external assets keeps the local-only product free of trademark-asset redistribution while ensuring the monitor remains unmistakably labelled Claude, Codex and Cursor.
+
 ## Alternatives noticed
 
 CodeBurn is the current broadest direct alternative found. It may be the right standalone choice for a user who primarily needs usage/cost/waste analysis. This project exists because the target question is wider: canonical projects linked to agents, sessions, capability inventory and conservative maintenance evidence.
