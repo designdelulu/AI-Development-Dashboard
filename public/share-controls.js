@@ -14,11 +14,12 @@ const preferredByPeriod={
 export function defaultShareMetrics(options,period='month'){
   const available=new Set(options.filter(option=>option.available!==false).map(option=>option.id));
   const preferred=(preferredByPeriod[period]||preferredByPeriod.month).filter(id=>available.has(id));
-  return (preferred.length?preferred:options.filter(option=>option.available!==false).map(option=>option.id)).slice(0,4);
+  const supportedTokens=options.filter(option=>option.available!==false&&option.family==='tokens').map(option=>option.id);
+  return [...new Set([...(preferred.length?preferred:options.filter(option=>option.available!==false).map(option=>option.id)),...supportedTokens])];
 }
 
 export function updateSharePreferences(current,patch){
   const next={...current,...patch};
-  const changed=['period','format','metrics','emphasis'].some(key=>JSON.stringify(current[key])!==JSON.stringify(next[key]));
+  const changed=['period','format','metrics','slide'].some(key=>JSON.stringify(current[key])!==JSON.stringify(next[key]));
   return {...next,previewRevision:(current.previewRevision||0)+(changed?1:0)};
 }

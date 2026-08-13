@@ -25,13 +25,19 @@ The Setup Prompt is generated from the current normalized parent-capability regi
 
 Future Import Stack flow: audit target machine → compare installed capabilities → classify already-installed/missing/version-different/conflict/unsupported → preview plan → user approves → apply → validate. The manifest and Setup Prompt are inputs to the same safety model, never executable installation instructions.
 
+## Share Story deck
+
+The dashboard can build a local multi-slide recap. Every card is derived from a frozen Public-safe `ShareSnapshot`; the deck can include only evidence-supported slides. Agent ranking contains labeled agent names, observed session counts, percentages, and public local-app marks. Capability ranking includes only non-private capability names with confirmed event evidence. Project names and dashboard notes are never part of the deck.
+
+Achievements are deterministic. They reward observed multi-agent work, confirmed capability practice, sustained active days, and a comparable personal efficiency improvement when available. Six tiers (Bronze through Mythic) are metadata and replaceable badge asset slots, not a claim of externally verified performance. No achievement rewards total tokens, LOC, prompt count, or tool-call volume.
+
 ## Future story/video
 
 The same snapshot/card schema supports 9:16 stories. A future renderer should prefer browser animation capture or Remotion if a repeatable video workflow is justified; it must consume snapshots, not live private telemetry.
 
 ## Share experience
 
-The interface starts with a public-safe observed-story preview before customization. Its agent marks use an internal geometric system—not provider logos—and mark size is accompanied by numeric observed-session share. Achievements are deterministic, evidence-labelled and intentionally never reward token volume, LOC, prompt count or tool-call count.
+The interface starts with a public-safe observed-story preview before customization. Its agent marks use locally packaged native application assets as clearly labelled identifiers; numeric rank, count, percentage, and proportional bars are the quantitative encoding. Asset provenance is recorded in `docs/ASSET-SOURCES.md`. Achievements are deterministic, evidence-labelled and intentionally never reward token volume, LOC, prompt count or tool-call count.
 
 Share cards keep four normalized token categories separate: Fresh input, Output, Cache read and Cache creation. A segmented composition may show their relative observed volume, but labels explicitly state that cached context is not fresh consumption. A category known elsewhere in local history but absent from the chosen period remains selectable only as an explained unavailable state; it is never rendered as a misleading zero.
 

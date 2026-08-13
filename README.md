@@ -1,6 +1,14 @@
 # AI Development Dashboard
 
-A local-first, project-first dashboard for understanding what AI resources contributed to a codebase: Git projects, Claude/Codex/Cursor sessions, observable consumption, installed capabilities, and conservative maintenance signals.
+A local-first, project-first desktop dashboard for understanding what AI resources contributed to a codebase: Git projects, Claude/Codex/Cursor sessions, observable consumption, installed capabilities, conservative maintenance signals, and privacy-safe recap stories.
+
+> Private beta: this repository is prepared for a private remote. It is not yet a public product or hosted service.
+
+![AI Development Dashboard showing real local activity and system status](docs/assets/ai-development-dashboard-live-overview.png)
+
+## Why it exists
+
+Modern development is often spread across more than one AI tool. This dashboard keeps the mental model simple: **Project → agents, sessions, capabilities, observable activity, and output**. It favors supported local evidence over attractive guesses; more tokens, LOC, prompts, or tool calls are never treated as proof of better work.
 
 ## Start
 
@@ -29,6 +37,8 @@ Open `http://127.0.0.1:4177`. The server binds only to loopback. It refreshes in
 - Keeps local-only project pins, statuses and concise working notes in a separate gitignored metadata store. They survive rescans and are never included in share/export assets.
 - Separates Skills, Tools, Integrations and Instructions, with independent capability scope, artifact state and agent installation coverage.
 - Opens Export Setup and Share Stats as toggleable utility drawers. Share Stats starts with a privacy-safe story, agent session-share marks and deterministic achievements before optional customization.
+- Runs as a readable persistent desktop utility at common laptop and half-monitor window sizes. Overview prioritizes the live signal field, agent state, system resources, capacity where locally supported, and essential current activity above the fold.
+- Builds a local Share Story deck: intro, ranked agent usage, projects/sessions, supported token profile, capability usage, and deterministic achievements appear only when evidence supports each slide. Export the current PNG, all available slide PNGs, or play a local review slideshow.
 
 ## Truth model
 
@@ -39,6 +49,8 @@ The dashboard never shows subscription quota/percentage, subscription billing, o
 ## Privacy
 
 No network request is made by the scanner or server. The generated `.dashboard-data/index.json` is local and gitignored. It contains source references, file fingerprints and derived counters only; raw conversations, prompt content, credentials and source code are not copied. Existing configurations/repositories are read-only.
+
+Share Story uses a separate allowlisted snapshot. It excludes project names, project notes, paths, raw sessions, prompt/conversation text, credentials, secrets, and private capabilities. A public release must still receive a final history and screenshot audit; see [release checklist](docs/RELEASE-CHECKLIST.md).
 
 ## Metrics and limitations
 
@@ -54,3 +66,16 @@ npm run scan
 ```
 
 The tests use sanitized generated fixtures. See [environment audit](docs/ENVIRONMENT-AUDIT.md), [architecture](docs/ARCHITECTURE.md), [metrics](docs/METRICS.md), [sharing privacy](docs/SHARING-PRIVACY.md), [future benchmarks](docs/FUTURE-BENCHMARKS.md) and [reuse decisions](docs/REUSE-DECISIONS.md).
+
+## Supported local sources
+
+| Source | What is observed | Important limits |
+| --- | --- | --- |
+| Claude Code | Session metadata, supported token fields, structured skill attribution, local session-file activity | No supported local subscription percentage source is used. |
+| Codex CLI | Session metadata, working-directory attribution, supported tool/context markers, local session-file activity | Token categories depend on what local records expose. |
+| Cursor | Safe transcript/session presence and encoded project attribution | Local records do not currently support trustworthy token totals. |
+| Git | Repository identity and descriptive change activity | LOC and churn are descriptive, not productivity scores. |
+
+## Public-release notes
+
+The project intentionally has no LICENSE yet: choose one deliberately before changing repository visibility. [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md), and [RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md) are ready for that decision.

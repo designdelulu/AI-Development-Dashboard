@@ -24,7 +24,9 @@ The local server scans once at startup, watches the configured local source root
 
 ## Interface rationale
 
-The interface follows an **editorial operations desk** direction: a dark Design Delulu identity with information hierarchy carried primarily by typography, rhythm and a few pink anchors rather than a field of equal cards. Overview remains project-first; visual agent geometry is an internal, labeled system whose relative size maps to observed session share. Utility tasks live in narrow, toggleable drawers so users return to their current view naturally. Share begins with a meaningful public-safe result, then exposes optional controls.
+The interface follows an **editorial operations desk** direction: a dark Design Delulu identity with information hierarchy carried primarily by typography, rhythm and a few pink anchors rather than a field of equal cards. It is tuned for a persistent laptop/desktop window or a column on a larger monitor: Overview keeps the session-specific hero, live agent signal, current states, resource strip, capacity, and essential activity close together above the fold. Utility tasks live in toggleable drawers so users return to their current view naturally.
+
+Share Stats is a local Share Story builder. A frozen public-safe snapshot is re-rendered as only the cards its evidence supports: intro, agent ranking, projects/sessions, normalized token profile, capability use, and achievements. Navigation and slideshow state live only in the browser. “Export all” produces one appropriately named PNG per slide without uploading anything. Agent logos have a fixed readable minimum; their session rank, exact count, percentage, and proportional bar provide the truthful visual encoding.
 
 ## Capability hierarchy and ownership
 
@@ -54,6 +56,6 @@ The browser derives a conservative live state and timing record without changing
 
 ## Future directions
 
-Phase 2 adds normalized token categories, structured Claude `attributionSkill` events, rolling comparable efficiency components, and a centralized sharing/export boundary. `ShareSnapshot` records only selected public-safe values and metric definitions before rendering a card. A future `New Project` feature should create a folder/Git root plus agent instruction stubs only through documented agent integrations. Workflow continuation/routing should consume personal historical evidence and never attempt subscription pooling or unsupported authentication flows.
+Phase 2 adds normalized token categories, structured Claude `attributionSkill` events, rolling comparable efficiency components, and a centralized sharing/export boundary. `ShareSnapshot` records only selected public-safe values, public capability ranking, deterministic achievement metadata, metric definitions, and visual slide choice before rendering a card. Achievement badges use tier metadata plus replaceable asset slots; fallback vectors are used until purpose-designed artwork is added. A future `New Project` feature should create a folder/Git root plus agent instruction stubs only through documented agent integrations. Workflow continuation/routing should consume personal historical evidence and never attempt subscription pooling or unsupported authentication flows.
 
 Future capability installation/import follows: audit target → compare current coverage and ownership → detect conflicts → preview exact artifacts/config changes → explicit approval → apply → validate → retain rollback information. It must use the same ownership boundary as future removal and never treat an inferred path as removable.
