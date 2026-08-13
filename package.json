@@ -1,0 +1,12 @@
+{
+  "name": "ai-development-dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "scan": "node src/cli.js scan",
+    "start": "node src/cli.js serve",
+    "test": "node --test test/core.test.js"
+  },
+  "engines": { "node": ">=20" }
+}
