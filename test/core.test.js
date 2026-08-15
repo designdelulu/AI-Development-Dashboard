@@ -356,6 +356,10 @@ test('Live Feed keeps the validated telemetry surface out of Overview',()=>{
   assert.match(app,/function liveFeed\(/);
   assert.match(app,/tokenModule\(/);
   assert.match(app,/view==='live'\)liveFeed/);
+  const liveFn=app.slice(app.indexOf('function liveFeed('),app.indexOf('function bindTokenModule('));
+  assert.ok(liveFn.indexOf('tokenModule(')<liveFn.indexOf('capacityPanel()'),'Token Activity should render before Plan Capacity');
+  assert.ok(liveFn.indexOf('live-instrument')<liveFn.indexOf('tokenModule('),'Live Agent Activity should render before Token Activity');
+  assert.ok(liveFn.indexOf('capacityPanel()')<liveFn.indexOf('overview-strip'),'Plan Capacity should render before remaining secondary telemetry');
   const overviewFn=app.slice(app.indexOf('function overview('),app.indexOf('function liveFeed('));
   assert.doesNotMatch(overviewFn,/activity-monitor/);
   assert.doesNotMatch(overviewFn,/capacityPanel/);
