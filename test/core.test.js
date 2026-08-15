@@ -18,6 +18,12 @@ import { openAgentCommand } from '../src/open-agent.js';
 import { isCursorLivePath } from '../src/live-files.js';
 import { structuredAttentionFromRows } from '../src/live-attention.js';
 import { resumeContextPresentation } from '../public/resume-ui.js';
+import { inferAgentFromModel, inferProvider, sessionIdentity, emptyHarnessRun, harnessWorker } from '../src/identity.js';
+import { localDateKey, periodBounds, tokenReports } from '../src/tokens.js';
+import { releaseInfo } from '../src/release.js';
+import { auditText, auditTree } from '../src/privacy-audit.js';
+import { detectProjectRoots, resolveProjectRoots as resolveRoots } from '../src/config.js';
+import { footerMarkup, needsYouPanel, startHereCard, tokenModule } from '../public/live-ui.js';
 
 function fixture() { const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aidash-')); fs.mkdirSync(path.join(root, 'alpha', '.git'), { recursive: true }); fs.writeFileSync(path.join(root, 'alpha', 'app.js'), 'export const answer = 42;\n'); return root; }
 test('discovers a canonical Git project', () => { const root = fixture(); const projects = discoverProjects(root); assert.equal(projects.length, 1); assert.equal(projects[0].name, 'alpha'); assert.equal(projects[0].confidence, CONFIDENCE.confirmed); });
@@ -203,8 +209,9 @@ test('registry defaults keep instructions out of reusable functionality and pres
   assert.match(ui,/All functionality/);assert.match(ui,/instructionsByScope/);assert.match(ui,/data-back="capabilities"/);assert.match(ui,/Repository type/);
 });
 test('the browser entry module parses before it is served',()=>{
-  const entry=path.join(process.cwd(),'public','app.js');
-  assert.doesNotThrow(()=>execFileSync(process.execPath,['--check',entry],{stdio:'pipe'}));
+  for (const file of ['app.js','live-ui.js','resume-ui.js','agent-state.js','signal-field.js']) {
+    assert.doesNotThrow(()=>execFileSync(process.execPath,['--check',path.join(process.cwd(),'public',file)],{stdio:'pipe'}));
+  }
 });
 test('utility launchers stay usable as drawer toggles',()=>{
   const ui=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
@@ -214,15 +221,148 @@ test('utility launchers stay usable as drawer toggles',()=>{
   assert.match(css,/body\.utility-open \.actions/);
 });
 test('overview is an operator surface with resume, needs you, and start here',()=>{
-  const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
+  const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8')+fs.readFileSync(path.join(process.cwd(),'public','live-ui.js'),'utf8')+fs.readFileSync(path.join(process.cwd(),'public','index.html'),'utf8');
   assert.match(source,/Needs You/);
   assert.match(source,/Continue Working/);
   assert.match(source,/Start Here/);
+  assert.match(source,/data-view="live"/);
+  assert.match(source,/Live Feed/);
   assert.match(source,/Resume Context/);
   assert.match(source,/preview:true/);
   assert.match(source,/laneH/);
   assert.match(source,/#2EE6C3/);
 });
-test('operator UI keeps verified attention, separate row fields, and expandable context',()=>{const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8'),styles=fs.readFileSync(path.join(process.cwd(),'public','overrides.css'),'utf8');assert.match(source,/Only explicit, supported local attention signals/);assert.match(source,/class="waiting-project"/);assert.match(source,/class="waiting-agent-name"/);assert.match(source,/class="waiting-state"/);assert.match(source,/data-expand-context/);assert.match(source,/View context/);assert.match(styles,/\.waiting-row\{display:grid/);assert.match(styles,/grid-template-columns:var\(--icon-box\) minmax\(0,1fr\) max-content max-content/);assert.match(styles,/\.resume-card\{display:flex;flex-direction:column/);assert.match(styles,/\.resume-card \.resume-actions\{margin-top:auto/);});
+test('operator UI keeps verified attention, separate row fields, and expandable context',()=>{const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8')+fs.readFileSync(path.join(process.cwd(),'public','live-ui.js'),'utf8'),styles=fs.readFileSync(path.join(process.cwd(),'public','overrides.css'),'utf8');assert.match(source,/Only explicit, supported local attention signals/);assert.match(source,/class="waiting-project"/);assert.match(source,/class="waiting-agent-name"/);assert.match(source,/class="waiting-state"/);assert.match(source,/data-expand-context/);assert.match(source,/View context/);assert.match(styles,/\.waiting-row\{display:grid/);assert.match(styles,/grid-template-columns:var\(--icon-box\) minmax\(0,1fr\) max-content max-content/);assert.match(styles,/\.resume-card\{display:flex;flex-direction:column/);assert.match(styles,/\.resume-card \.resume-actions\{margin-top:auto/);});
 test('shared dashboard primitives keep controls, metadata, and attention rows structurally aligned',()=>{const styles=fs.readFileSync(path.join(process.cwd(),'public','overrides.css'),'utf8');assert.match(styles,/--panel-inset:20px/);assert.match(styles,/--control-height:42px/);assert.match(styles,/--badge-height:22px/);assert.match(styles,/\.primary,\.filter\{display:inline-flex;align-items:center;justify-content:center;min-height:var\(--control-height\)/);assert.match(styles,/\.waiting-state\{display:grid;justify-items:end/);});
 test('resume context preserves all content while offering controlled expansion',()=>{const short=resumeContextPresentation('Short context.'),longText='A'.repeat(230),long=resumeContextPresentation(longText),expanded=resumeContextPresentation(longText,true);assert.equal(short.expandable,false);assert.equal(long.expandable,true);assert.equal(long.text,longText);assert.equal(expanded.expanded,true);assert.equal(expanded.text,longText);});
+
+test('Start Here and Needs You share a two-column operator desk',()=>{
+  const styles=fs.readFileSync(path.join(process.cwd(),'public','overrides.css'),'utf8');
+  const ui=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8')+fs.readFileSync(path.join(process.cwd(),'public','live-ui.js'),'utf8');
+  assert.match(styles,/\.operator-desk\{display:grid/);
+  assert.match(styles,/grid-template-columns:minmax\(0,1fr\) minmax\(0,1fr\)/);
+  assert.match(styles,/@media\(max-width:880px\)\{\.operator-desk\{grid-template-columns:1fr\}/);
+  const empty=needsYouPanel([]);
+  const one=needsYouPanel([{agent:'Codex',projectName:'Alpha',projectId:'p1',waitingMs:1000}]);
+  const many=needsYouPanel([{agent:'Codex',projectName:'Alpha',projectId:'p1'},{agent:'Claude',projectName:'Beta',projectId:'p2'}]);
+  assert.match(empty,/Nothing needs your attention right now/);
+  assert.match(one,/Alpha/);
+  assert.doesNotMatch(one,/needs-you-more/);
+  assert.match(many,/needs-you-more/);
+  const card=startHereCard({project:{id:'p1',name:'AI Development Dashboard'},recommendation:{agent:'Codex',reason:'Codex was last used here and has 36% of its weekly window remaining.'},lastAgent:'Codex'});
+  assert.match(card,/Continue in Codex/);
+  assert.match(card,/36%/);
+  assert.match(ui,/operator-desk/);
+});
+
+test('token periods use local time and do not treat Cursor zeros as usage',()=>{
+  const now=new Date(2026,7,15,21,30,0);
+  const todayStart=periodBounds('today',now).start;
+  const yesterdayStart=periodBounds('yesterday',now).start;
+  const sessions=[
+    {agent:'Claude',host:'Claude Code',provider:'Anthropic',model:'claude-opus-4',timestamp:new Date(todayStart.getTime()+3_600_000).toISOString(),tokens:{freshInput:100,output:20,cacheRead:400,cacheCreation:10,reasoning:0,other:0}},
+    {agent:'Codex',host:'Codex CLI',provider:'OpenAI',model:'gpt-5.6',timestamp:new Date(yesterdayStart.getTime()+3_600_000).toISOString(),tokens:{freshInput:50,output:10,cacheRead:0,cacheCreation:0,reasoning:0,other:0}},
+    {agent:'Cursor',host:'Cursor',provider:'Unknown',model:null,timestamp:new Date(todayStart.getTime()+2_000_000).toISOString(),tokens:{freshInput:0,output:0,cacheRead:0,cacheCreation:0,reasoning:0,other:0}}
+  ];
+  const {reports}=tokenReports(sessions,now,{knownAgents:['Claude','Codex','Cursor']});
+  assert.equal(reports.today.tokens.freshInput,100);
+  assert.equal(reports.today.observedActivity,530);
+  assert.equal(reports.yesterday.tokens.freshInput,50);
+  assert.equal(reports['7d'].sessionCount,3);
+  assert.equal(reports.month.sessionCount,3);
+  assert.equal(reports.all.sessionCount,3);
+  const cursor=reports.today.byAgent.find(row=>row.agent==='Cursor');
+  const claude=reports.today.byAgent.find(row=>row.agent==='Claude');
+  assert.equal(cursor.available,false);
+  assert.equal(cursor.observedActivity,null);
+  assert.match(cursor.reason,/trustworthy token totals/);
+  assert.equal(claude.available,true);
+  assert.equal(Math.round(claude.share*100),100);
+  assert.equal(localDateKey(now),'2026-08-15');
+  assert.equal(periodBounds('yesterday',now).end.getTime(),todayStart.getTime());
+});
+
+test('derive hydrates host and provider on older sessions without inventing roles',()=>{
+  const tokens={freshInput:1,output:1,cacheRead:0,cacheCreation:0,reasoning:0,other:0};
+  const r=derive({projects:[],capabilities:[],capabilityUsageEvents:[],errors:[],sources:{},sessions:[{id:'old',agent:'Claude',model:'kimi-k3',timestamp:'2026-08-10T00:00:00Z',tokens,tools:0,compactions:0,attributionConfidence:CONFIDENCE.unknown}]});
+  assert.equal(r.sessions[0].agent,'Kimi');
+  assert.equal(r.sessions[0].host,'Claude Code');
+  assert.equal(r.sessions[0].provider,'Moonshot');
+  assert.equal(r.sessions[0].role,null);
+  assert.ok(r.summary.providers.includes('Moonshot'));
+  assert.ok(r.summary.hosts.includes('Claude Code'));
+});
+
+test('model provider and host stay separate and roles are never invented',()=>{
+  const kimi=sessionIdentity({agent:'Claude',host:'Claude Code',model:'kimi-k3'});
+  assert.equal(kimi.agent,'Kimi');
+  assert.equal(kimi.host,'Claude Code');
+  assert.equal(kimi.provider,'Moonshot');
+  assert.equal(kimi.role,null);
+  assert.equal(inferAgentFromModel('deepseek-v4-flash','Claude'),'DeepSeek');
+  assert.equal(inferProvider('gpt-5.6').provider,'OpenAI');
+  const run=emptyHarnessRun({harness:'munder-difflin',task:'Live Feed',workers:[harnessWorker({agent:'Kimi',host:'Kimi Code',provider:'Moonshot',model:'kimi-k3',role:'Implementation'})]});
+  assert.equal(run.workers[0].role,'Implementation');
+  assert.equal(emptyHarnessRun().workers.length,0);
+  const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
+  assert.match(source,/<dt>Host<\/dt>/);
+  assert.match(source,/<dt>Provider<\/dt>/);
+  assert.match(source,/<dt>Role<\/dt>/);
+  assert.match(source,/Not recorded/);
+});
+
+test('footer omits the public source link while the repository is private',()=>{
+  const privateRelease=releaseInfo({repositoryPublic:false});
+  const publicRelease=releaseInfo({repositoryPublic:true});
+  assert.equal(privateRelease.sourceUrl,null);
+  assert.equal(publicRelease.sourceUrl,'https://github.com/designdelulu/AI-Development-Dashboard');
+  assert.doesNotMatch(footerMarkup(privateRelease),/github.com/);
+  assert.match(footerMarkup(publicRelease),/github.com\/designdelulu\/AI-Development-Dashboard/);
+  assert.match(footerMarkup(privateRelease),/ericbarker\.co/);
+  assert.match(footerMarkup(privateRelease),/ai-development-dashboard\.html/);
+  const html=fs.readFileSync(path.join(process.cwd(),'public','index.html'),'utf8');
+  assert.doesNotMatch(html,/href="https:\/\/github.com\/designdelulu\/AI-Development-Dashboard"/);
+});
+
+test('fresh clones do not assume a Dropbox projects root',()=>{
+  const roots=resolveRoots({env:{},homedir:'/tmp/no-dashboard-home',settings:{}});
+  assert.deepEqual(roots,[]);
+  assert.equal(detectProjectRoots('/tmp/no-dashboard-home').length,0);
+  const ui=fs.readFileSync(path.join(process.cwd(),'public','live-ui.js'),'utf8');
+  assert.match(ui,/Choose a projects folder/);
+  assert.match(ui,/Dropbox is not required/);
+});
+
+test('public-release privacy validator flags secrets and owner paths in source',()=>{
+  assert.equal(auditText('const x=1;','src/ok.js').length,0);
+  assert.ok(auditText('sk-ant-api03-abcdefghijklmnopqrstuvwxyz','src/leak.js').some(item=>item.kind==='secret'));
+  assert.ok(auditText("const root='/Users/ericbarker/Dropbox/Projects';",'src/config.js').some(item=>item.kind==='absolute-owner-path'));
+  const tracked=execFileSync('git',['ls-files'],{encoding:'utf8'}).trim().split('\n').filter(Boolean);
+  const findings=auditTree(process.cwd(),tracked).filter(item=>item.kind==='secret'||item.kind==='env-file'||item.kind==='local-analytics'||item.kind==='handoff');
+  assert.deepEqual(findings,[]);
+});
+
+test('Live Feed keeps the validated telemetry surface out of Overview',()=>{
+  const app=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
+  const html=fs.readFileSync(path.join(process.cwd(),'public','index.html'),'utf8');
+  assert.match(html,/<button data-view="live">Live Feed<\/button>/);
+  assert.match(app,/requestedView\(/);
+  assert.match(app,/\?view=/);
+  assert.match(app,/function liveFeed\(/);
+  assert.match(app,/tokenModule\(/);
+  assert.match(app,/view==='live'\)liveFeed/);
+  const overviewFn=app.slice(app.indexOf('function overview('),app.indexOf('function liveFeed('));
+  assert.doesNotMatch(overviewFn,/activity-monitor/);
+  assert.doesNotMatch(overviewFn,/capacityPanel/);
+  assert.match(fs.readFileSync(path.join(process.cwd(),'public','live-ui.js'),'utf8'),/TOKEN ACTIVITY/);
+  assert.match(fs.readFileSync(path.join(process.cwd(),'public','overrides.css'),'utf8'),/@media\(max-width:1100px\)\{[^@]*capacity-layout\{grid-template-columns:1fr\}/);
+});
+
+test('token module markup stays honest about cache and unavailable agents',()=>{
+  const html=tokenModule({label:'Today',observedActivity:530,freshPlusOutput:120,tokens:{freshInput:100,output:20,cacheRead:400,cacheCreation:10},byAgent:[{agent:'Claude',available:true,observedActivity:530,share:1},{agent:'Cursor',available:false,reason:'unavailable'}]},{selected:'today',yesterday:{observedActivity:60},expanded:true});
+  assert.match(html,/observed token activity/);
+  assert.match(html,/Fresh \+ Output/);
+  assert.match(html,/Unavailable/);
+  assert.doesNotMatch(html,/>Tokens Used</);
+});
+

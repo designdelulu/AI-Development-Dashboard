@@ -12,6 +12,7 @@ This V1 independently implements a deliberately smaller, project-first local ind
 | [AIUsage](https://github.com/juliantanx/aiusage) | Local parser/cache/database plus CLI/web/widget; supports Claude Code, Codex and other agents; optional sync is separate. | Not reused. It is closest in scope for usage aggregation, but the V1 needs a project/capability registry rather than another usage dashboard/cache. Its local-first and normalized-schema separation informed this design. |
 | [Skiller](https://github.com/beautyfree/skiller) | Desktop skills manager for Claude Code, Cursor, Codex and more; installation/sync/management. | Not reused. The dashboard observes capability inventory and health but must not modify or synchronize existing skills. Skiller is a complementary future integration candidate. |
 | [Tokscale](https://github.com/junhoyeo/tokscale) | Terminal token tracker and public leaderboard/sync-oriented product. | Not reused. V1 intentionally avoids network accounts/leaderboards and focuses on local projects/capabilities. It remains a useful source-format comparison during future adapter work. |
+| [Munder Difflin](https://github.com/chaitanyagiri/munder-difflin) | MIT-licensed (code) local-first multi-agent harness wrapping terminal CLIs, with hive memory, mailboxes, GOD orchestrator, worktrees, budgets. v0.4.3 as of this audit. Pixel art is non-commercial. | Not reused and not cloned. Strongest execution-harness reference. Dashboard stays project-first operating/analytics. Future: optional adapter reading Munder hive telemetry. Full write-up: [MUNDER-DIFFLIN-COMPARISON.md](./MUNDER-DIFFLIN-COMPARISON.md). |
 
 ## Licensing and privacy
 
@@ -25,6 +26,7 @@ After the operator/resume pass, unused-capability review stays collapsed. Duplic
 
 - **Skiller** remains the installer/sync product. This dashboard inventories capabilities and does not install, sync, or rewrite skill files. A future integration would open or compare with Skiller rather than duplicating its manager UI.
 - **CodeBurn** remains the token/cost/waste product. This dashboard keeps project-first identity, conservative capability taxonomy, and resume/handoff. It will not grow an optimize/waste engine or a 40-tool cost parser.
+- **Munder Difflin** remains the multi-agent execution harness. This dashboard does not clone its office floor, GOD orchestrator, mailboxes, or worktrees. A future integration would launch or read Munder, not reimplement it.
 
 If a user needs skill installation or token-cost analysis, point them at those tools. Do not copy their product surface into this repo.
 

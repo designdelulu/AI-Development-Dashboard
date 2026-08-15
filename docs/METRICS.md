@@ -12,8 +12,11 @@ Metric definitions version: 2.0.
 | Cache creation | Provider `cache_creation_input_tokens`; context written to cache where exposed. | Fresh user input. |
 | Reasoning / other | Provider-specific explicit fields, if supplied. | A comparable cross-provider measure unless documented by that provider. |
 | Total observed token activity | Sum of the above observed categories. Useful for describing model work; deliberately not called “tokens used.” | Subscription billing, plan allowance, or API cost. |
+| Fresh + Output | Fresh input plus output only. | Cache activity or billed subscription usage. |
 
-Missing fields remain unavailable/zero in their category. A zero never means a provider used no tokens; it may mean the local source does not expose that field.
+Period reports use the operator’s **local timezone**: Today, Yesterday, Last 7 days, This month, and Since tracking began. They are sliced from the normalized session index / daily token calendar, not by rereading transcripts. Cursor remains **Unavailable** for token contribution rather than a misleading zero.
+
+Missing fields remain unavailable/zero in their category. A zero never means a provider used no tokens; it may mean the local source does not expose that field. Agent, host, provider and model contribution are reported separately when those fields exist.
 
 ## Attribution and efficiency
 
