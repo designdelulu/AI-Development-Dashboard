@@ -6,7 +6,7 @@ import { defaultSources, scan, applyProjectMetadata, PROJECT_STATUSES, achieveme
 import { createSystemSampler, liveStateSnapshot, sessionFileSignal } from './activity.js';
 import { readPlanCapacity } from './capacity.js';
 import { shareableStack, manifest, privateInventory, publicMetricOptions, createSnapshot, shareCardSvg, setupPrompt } from './sharing.js';
-import { isLiveActivityPath } from './live-files.js';
+import { claudeLiveDecision, isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
 import { loadSettings, saveSettings } from './config.js';
 import { releaseInfo } from './release.js';
@@ -83,7 +83,7 @@ function rememberLiveFiles(agent, dir, depth = 0) {
   for (const entry of entries) {
     const file = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (['.git', 'node_modules', '.dashboard-data', 'canvases', 'mcps'].includes(entry.name)) continue;
+      if (['.git', 'node_modules', '.dashboard-data', 'canvases', 'mcps', 'ai-dashboard'].includes(entry.name)) continue;
       rememberLiveFiles(agent, file, depth + 1);
       continue;
     }
@@ -95,15 +95,21 @@ function rememberLiveFiles(agent, dir, depth = 0) {
     } catch {}
   }
 }
-function recordLiveActivity(agent, source, filename) {
-  const candidate = filename ? path.resolve(source, String(filename)) : null;
-  if (agent && candidate && !isLiveActivityPath(agent, candidate)) return;
-  const previous = liveFileSizes.get(candidate);
-  const next = candidate ? (() => { try { const stat = fs.statSync(candidate); return { size: stat.size, mtimeMs: stat.mtimeMs }; } catch { return null; } })() : null;
-  if (candidate && next && previous && next.size === previous.size && next.mtimeMs === previous.mtimeMs) return;
-  const observedAt = Date.now(), attention = candidate ? structuredAttentionFromFile(agent, candidate, observedAt) : null;
-  const signal = sessionFileSignal({ agent, timestamp: observedAt, previousSize: previous?.size ?? next?.size ?? 0, size: next?.size ?? previous?.size ?? 0, kind: candidate ? 'session-file-update' : 'source-directory-update' });
-  if (candidate && next != null) { liveFiles.set(candidate, agent); liveFileSizes.set(candidate, next); }
+function emitLiveSignal(agent, candidate, previous, next) {
+  const observedAt = Date.now();
+  const attention = candidate ? structuredAttentionFromFile(agent, candidate, observedAt) : null;
+  const previousSize = agent === 'Claude' ? (previous?.size ?? 0) : (previous?.size ?? next?.size ?? 0);
+  const signal = sessionFileSignal({
+    agent,
+    timestamp: observedAt,
+    previousSize,
+    size: next?.size ?? previous?.size ?? 0,
+    kind: candidate ? 'session-file-update' : 'source-directory-update'
+  });
+  if (candidate && next != null) {
+    liveFiles.set(candidate, agent);
+    liveFileSizes.set(candidate, next);
+  }
   // A fresh structured task-complete marker is sticky while the same session is
   // quiet. Any later local activity clears it—silence alone never creates it.
   if (attention) attentionSignals.set(agent, attention);
@@ -115,7 +121,47 @@ function recordLiveActivity(agent, source, filename) {
   const cutoff = Date.now() - 60_000;
   while (liveActivityEvents[0] && new Date(liveActivityEvents[0].timestamp).getTime() < cutoff) liveActivityEvents.shift();
 }
-function pollLiveFiles() { for (const [file, agent] of liveFiles) recordLiveActivity(agent, path.dirname(file), path.basename(file)); }
+
+function observeLivePath(agent, candidate) {
+  if (agent && candidate && !isLiveActivityPath(agent, candidate)) return;
+  const previous = liveFileSizes.get(candidate);
+  const next = candidate ? (() => { try { const stat = fs.statSync(candidate); return { size: stat.size, mtimeMs: stat.mtimeMs }; } catch { return null; } })() : null;
+  if (agent === 'Claude') {
+    const decision = claudeLiveDecision(candidate, previous, next);
+    if (!decision.keep) {
+      if (candidate) {
+        liveFiles.delete(candidate);
+        liveFileSizes.delete(candidate);
+      }
+      return;
+    }
+    if (candidate && next != null) {
+      liveFiles.set(candidate, agent);
+      liveFileSizes.set(candidate, next);
+    }
+    if (!decision.emit) return;
+    emitLiveSignal(agent, candidate, previous, next);
+    return;
+  }
+  if (candidate && next && previous && next.size === previous.size && next.mtimeMs === previous.mtimeMs) return;
+  if (candidate && !next) {
+    liveFiles.delete(candidate);
+    liveFileSizes.delete(candidate);
+    return;
+  }
+  emitLiveSignal(agent, candidate, previous, next);
+}
+
+function recordLiveActivity(agent, source, filename) {
+  const candidate = filename ? path.resolve(source, String(filename)) : null;
+  if (!candidate) {
+    if (agent === 'Claude') return;
+    emitLiveSignal(agent, null, null, null);
+    return;
+  }
+  observeLivePath(agent, candidate);
+}
+function pollLiveFiles() { for (const [file, agent] of liveFiles) observeLivePath(agent, file); }
 function sourceWatchList(sources) {
   const list = [];
   for (const [key, value] of Object.entries(sources)) {
@@ -132,7 +178,7 @@ function sourceWatchList(sources) {
 function watchSources() {
   const sources = currentSources();
   let timer;
-  const ignored = /(^|[\\/])(\.dashboard-data|\.git|node_modules|canvases|mcps)([\\/]|$)/;
+  const ignored = /(^|[\\/])(\.dashboard-data|\.git|node_modules|canvases|mcps|ai-dashboard)([\\/]|$)/;
   const changed = (agent, source, filename) => {
     const candidate = filename ? path.resolve(source, String(filename)) : '';
     if ((candidate && (candidate === dataDir || candidate.startsWith(`${dataDir}${path.sep}`))) || ignored.test(candidate)) return;

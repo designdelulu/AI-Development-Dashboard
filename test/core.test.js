@@ -15,7 +15,7 @@ import { normalizeCapacity, readPlanCapacity } from '../src/capacity.js';
 import { resolveProjectRoots } from '../src/config.js';
 import { lastSessionForProject, observedContext, projectHandoff, rankResumeCandidates, startHereRecommendation } from '../src/resume.js';
 import { openAgentCommand } from '../src/open-agent.js';
-import { isCursorLivePath } from '../src/live-files.js';
+import { claudeLiveDecision, isClaudeLivePath, isCursorLivePath, isDashboardGeneratedClaudePath } from '../src/live-files.js';
 import { structuredAttentionFromRows } from '../src/live-attention.js';
 import { resumeContextPresentation } from '../public/resume-ui.js';
 import { inferAgentFromModel, inferProvider, sessionIdentity, emptyHarnessRun, harnessWorker } from '../src/identity.js';
@@ -179,6 +179,36 @@ test('cursor live allowlist accepts WAL and agent-tools mtime and ignores MCP JS
   const wal=sessionFileSignal({agent:'Cursor',timestamp:1_000_000,previousSize:4096,size:4096});
   assert.equal(wal.bytesAdded,0);
   assert.ok(activityEventWeight(wal)>=1);
+});
+test('claude live activity ignores dashboard-generated files and mtime-only touches',()=>{
+  const session='/Users/x/.claude/projects/proj/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl';
+  const subagent='/Users/x/.claude/projects/proj/agent-aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl';
+  const dashboard='/Users/x/.claude/ai-dashboard/events.jsonl';
+  const usage='/Users/x/.claude/usage_state.json';
+  const settings='/Users/x/.claude/settings.json';
+  const backup='/Users/x/.claude/settings.json.bak-ai-dashboard-capacity';
+  const capture='/Users/x/.claude/ai-dashboard/claude-capacity-capture.mjs';
+  assert.equal(isClaudeLivePath(session),true);
+  assert.equal(isClaudeLivePath(subagent),true);
+  assert.equal(isClaudeLivePath(dashboard),false);
+  assert.equal(isClaudeLivePath(usage),false);
+  assert.equal(isClaudeLivePath(settings),false);
+  assert.equal(isDashboardGeneratedClaudePath(dashboard),true);
+  assert.equal(isDashboardGeneratedClaudePath(usage),true);
+  assert.equal(isDashboardGeneratedClaudePath(backup),true);
+  assert.equal(isDashboardGeneratedClaudePath(capture),true);
+  assert.equal(claudeLiveDecision(dashboard,{size:10,mtimeMs:1},{size:999,mtimeMs:2}).emit,false);
+  assert.equal(claudeLiveDecision(usage,null,{size:80,mtimeMs:2}).emit,false);
+  assert.equal(claudeLiveDecision(session,{size:100,mtimeMs:1},{size:100,mtimeMs:99}).emit,false);
+  assert.equal(claudeLiveDecision(session,{size:100,mtimeMs:1},{size:100,mtimeMs:99}).reason,'no-growth');
+  assert.equal(claudeLiveDecision(session,{size:100,mtimeMs:1},{size:180,mtimeMs:2}).emit,true);
+  assert.equal(claudeLiveDecision(session,null,{size:40,mtimeMs:1}).emit,true);
+  assert.equal(claudeLiveDecision(session,{size:100,mtimeMs:1},null).emit,false);
+  assert.equal(claudeLiveDecision(session,{size:100,mtimeMs:1},null).keep,false);
+  const cli=fs.readFileSync(path.join(process.cwd(),'src','cli.js'),'utf8');
+  assert.match(cli,/claudeLiveDecision/);
+  assert.match(cli,/observeLivePath/);
+  assert.doesNotMatch(cli,/ai-dash-claude-live/);
 });
 test('maintenance surfaces duplicates without turning unused capabilities into an app store',()=>{
   const groups=maintenanceGroups([
@@ -359,7 +389,10 @@ test('Live Feed keeps the validated telemetry surface out of Overview',()=>{
   const liveFn=app.slice(app.indexOf('function liveFeed('),app.indexOf('function bindTokenModule('));
   assert.ok(liveFn.indexOf('tokenModule(')<liveFn.indexOf('capacityPanel()'),'Token Activity should render before Plan Capacity');
   assert.ok(liveFn.indexOf('live-instrument')<liveFn.indexOf('tokenModule('),'Live Agent Activity should render before Token Activity');
-  assert.ok(liveFn.indexOf('capacityPanel()')<liveFn.indexOf('overview-strip'),'Plan Capacity should render before remaining secondary telemetry');
+  assert.ok(liveFn.indexOf('capacityPanel()')<liveFn.indexOf('resource-panel'),'Plan Capacity should render before System Resources');
+  assert.ok(liveFn.indexOf('resource-panel')<liveFn.indexOf('overview-strip'),'System Resources should render before remaining secondary telemetry');
+  assert.ok(liveFn.indexOf('live-instrument')<liveFn.indexOf('resource-panel'));
+  assert.ok(!/live-instrument[\s\S]*resource-strip[\s\S]*tokenModule/.test(liveFn),'System Resources must not sit inside Live Agent Activity');
   const overviewFn=app.slice(app.indexOf('function overview('),app.indexOf('function liveFeed('));
   assert.doesNotMatch(overviewFn,/activity-monitor/);
   assert.doesNotMatch(overviewFn,/capacityPanel/);

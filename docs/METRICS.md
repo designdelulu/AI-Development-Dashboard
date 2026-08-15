@@ -54,7 +54,7 @@ Browser-local timing begins only when this state tracker first runs. A versioned
 
 ### Live signal sources
 
-The backend checks the known live files every 1.5 seconds and the browser requests the compact live snapshot every two seconds. Claude activity comes from modified `.claude/projects/**/*.jsonl` session files; Codex from modified `.codex/sessions/**/*.jsonl` files. Cursor activity is taken from **mtime/size only** on:
+The backend checks the known live files every 1.5 seconds and the browser requests the compact live snapshot every two seconds. Claude activity comes only from **size growth** of `.claude/projects/**/*.jsonl` session transcripts (including subagent JSONL). mtime-only touches, missing files, directory watches, and dashboard/statusline/config files (`~/.claude/ai-dashboard/**`, `usage_state.json`, settings backups) never generate Claude pulses. Codex from modified `.codex/sessions/**/*.jsonl` files. Cursor activity is taken from **mtime/size only** on:
 
 - `~/Library/Application Support/Cursor/User/globalStorage/state.vscdb-wal` (and `state.vscdb`)
 - `~/.cursor/projects/**/agent-tools/*`
