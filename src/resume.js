@@ -1,4 +1,5 @@
 import { classifyAgentState } from '../public/agent-state.js';
+import { localDateKey } from './tokens.js';
 
 const HEADLINE = new Set(['Confirmed', 'Strongly inferred']);
 const SECRET_FILE = /(\.env(?:$|\.)|credentials|id_rsa|\.pem$|secret|token\.json|\.netrc)/i;
@@ -86,7 +87,7 @@ export function startHereRecommendation({ lastAgent = null, agentState = null, c
     return { agent: lastAgent, reason: `${lastAgent} needs your attention on this project.` };
   }
   if (lastAgent === 'Codex' && remaining != null && available('Codex')) {
-    return { agent: 'Codex', reason: `Codex was the last agent used on this project and has ${remaining}% of its weekly capacity remaining.` };
+    return { agent: 'Codex', reason: `Codex was last used here and has ${remaining}% of its weekly window remaining.` };
   }
   if (lastAgent && available(lastAgent)) {
     let reason = `${lastAgent} was the last agent used on this project.`;
@@ -168,8 +169,8 @@ export function needsYou(projects = [], sessions = [], liveStates = {}, now = Da
 }
 
 export function operatorSummary({ projects = [], sessions = [], liveStates = {}, capacity = null, now = Date.now() } = {}) {
-  const today = new Date(now).toISOString().slice(0, 10);
-  const todayProjects = new Set(sessions.filter((session) => session.timestamp?.slice(0, 10) === today && session.projectId).map((session) => session.projectId));
+  const today = localDateKey(now);
+  const todayProjects = new Set(sessions.filter((session) => localDateKey(session.timestamp) === today && session.projectId).map((session) => session.projectId));
   const waiting = needsYou(projects, sessions, liveStates, now);
   const resume = rankResumeCandidates(projects, sessions, { liveStates, now, limit: 5 });
   const paused = projects.filter((project) => project.status === 'Paused').map((project) => project.name);

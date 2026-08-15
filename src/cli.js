@@ -9,6 +9,8 @@ import { shareableStack, manifest, privateInventory, publicMetricOptions, create
 import { isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
 import { loadSettings, saveSettings } from './config.js';
+import { releaseInfo } from './release.js';
+import { tokenReportFromCalendar } from './tokens.js';
 import { buildOperator, lastSessionForProject, liveStatesFromEvents, projectHandoff, recentCapabilitiesForProject } from './resume.js';
 import { detectAgents, launchAgent, openAgentCommand } from './open-agent.js';
 
@@ -48,7 +50,14 @@ function refresh(reason = 'manual') {
   refreshing = false;
   return liveIndex;
 }
-function index() { return liveIndex || (fs.existsSync(indexFile) ? (liveIndex = decorate(JSON.parse(fs.readFileSync(indexFile, 'utf8')))) : refresh('startup')); }
+function index() {
+  if (liveIndex) return liveIndex;
+  if (!fs.existsSync(indexFile)) return refresh('startup');
+  const stored = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+  const needsIdentity = (stored.schemaVersion || 0) < 6 || (stored.sessions || []).some((session) => !session.provider || !session.host);
+  if (needsIdentity) return refresh('schema-identity');
+  return (liveIndex = decorate(stored));
+}
 function body(req) { return new Promise((resolve) => { let text = ''; req.on('data', (d) => text += d); req.on('end', () => { try { resolve(JSON.parse(text || '{}')); } catch { resolve({}); } }); }); }
 function contentType(file) {
   if (file.endsWith('.js')) return 'text/javascript';
@@ -172,7 +181,13 @@ function serve() {
     if (url.pathname === '/api/live') { res.setHeader('Cache-Control', 'no-store, max-age=0'); return json(res, liveState().activity); }
     if (url.pathname === '/api/system') { res.setHeader('Cache-Control', 'no-store, max-age=0'); return json(res, latestSystem); }
     if (url.pathname === '/api/operator') return json(res, liveState().operator);
-    if (url.pathname === '/api/settings' && req.method === 'GET') return json(res, { ...loadSettings(dataDir), projectsRoots: currentSources().projectsRoots });
+    if (url.pathname === '/api/release') return json(res, releaseInfo(loadSettings(dataDir)));
+    if (url.pathname === '/api/tokens') {
+      const period = url.searchParams.get('period') || 'today';
+      const current = index();
+      return json(res, current.tokenReports?.[period] || tokenReportFromCalendar(current.tokenCalendar || { days: {} }, period, new Date(), { knownAgents: current.summary?.agents || ['Claude', 'Codex', 'Cursor'] }));
+    }
+    if (url.pathname === '/api/settings' && req.method === 'GET') return json(res, { ...loadSettings(dataDir), projectsRoots: currentSources().projectsRoots, needsProjectRoot: !(currentSources().projectsRoots || []).length });
     if (url.pathname === '/api/settings' && req.method === 'POST') {
       const b = await body(req);
       const roots = Array.isArray(b.projectsRoots) ? b.projectsRoots : b.projectsRoot ? [b.projectsRoot] : null;

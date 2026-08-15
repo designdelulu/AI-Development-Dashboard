@@ -2,7 +2,17 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 
-export const DEFAULT_PROJECTS_ROOT = path.join(os.homedir(), 'Dropbox', 'Projects');
+export const CANDIDATE_PROJECT_ROOTS = ['Dropbox/Projects', 'Projects'];
+
+export function detectProjectRoots(homedir = os.homedir()) {
+  return CANDIDATE_PROJECT_ROOTS
+    .map((relative) => path.join(homedir, ...relative.split('/')))
+    .filter((candidate) => {
+      try { return fs.statSync(candidate).isDirectory(); } catch { return false; }
+    });
+}
+
+export const DEFAULT_PROJECTS_ROOT = detectProjectRoots()[0] || null;
 
 export function settingsFile(dataDir) {
   return path.join(dataDir, 'settings.json');
@@ -46,7 +56,8 @@ export function resolveProjectRoots({ env = process.env, dataDir = null, homedir
       ? [stored.projectsRoot]
       : [];
   const roots = [...new Set(listed.map((item) => expandHome(item, homedir)).filter(Boolean))];
-  return roots.length ? roots : [path.join(homedir, 'Dropbox', 'Projects')];
+  if (roots.length) return roots;
+  return detectProjectRoots(homedir);
 }
 
 export function locationUnderRoots(location, roots = []) {
