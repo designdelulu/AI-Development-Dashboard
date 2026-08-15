@@ -6,7 +6,7 @@ AI Development Dashboard is a local-first product. The scanner and localhost ser
 
 - source file paths and fingerprints
 - timestamps, compact counters, Git snapshot metadata
-- normalized token category totals when a local record exposes them
+- normalized token category totals when a local record exposes them, dated by usage-event timestamps
 - project pins, statuses, and private notes in `project-metadata.json`
 - frozen public-safe share snapshots when you export a recap
 
@@ -16,6 +16,8 @@ AI Development Dashboard is a local-first product. The scanner and localhost ser
 - credentials, cookies, API keys, environment values
 - source code from observed projects
 - Claude/Cursor subscription account data
+
+Cursor itself can show token usage in the Cursor account dashboard. This product does not scrape that dashboard. Local Cursor token totals stay unavailable until a validated local ledger or an official Usage CSV import exists.
 
 ## Sharing
 

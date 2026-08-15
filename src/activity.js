@@ -1,7 +1,9 @@
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 
-export const AGENTS=['Claude','Codex','Cursor'];
+import { ADAPTER_AGENTS } from './brands.js';
+
+export const AGENTS = ADAPTER_AGENTS;
 export const ACTIVITY_WINDOW_MS=45_000;
 export const ACTIVITY_SAMPLE_MS=1_000;
 export const ACTIVITY_DECAY_MS=9_000;
@@ -9,10 +11,10 @@ export const ACTIVITY_DECAY_MS=9_000;
 const finite=(value,fallback=0)=>Number.isFinite(Number(value))?Number(value):fallback;
 const timestamp=value=>{const n=new Date(value).getTime();return Number.isFinite(n)?n:null;};
 export function activityEventWeight(event={}) { const tools=1+Math.min(2,Math.log2(Math.max(0,finite(event.tools))+1)); if(event.kind==='session-file-update'||event.kind==='source-directory-update')return 1+Math.min(2,Math.log2(Math.max(0,finite(event.bytesAdded))/512+1)); return tools; }
-export function sessionFileSignal({agent,timestamp=Date.now(),previousSize=0,size=0,kind='session-file-update'}={}) { if(!AGENTS.includes(agent))return null; const at=timestamp instanceof Date?timestamp.getTime():new Date(timestamp).getTime(); if(!Number.isFinite(at))return null; return {agent,timestamp:new Date(at).toISOString(),kind,bytesAdded:Math.max(0,finite(size)-finite(previousSize))}; }
+export function sessionFileSignal({agent,timestamp=Date.now(),previousSize=0,size=0,kind='session-file-update',host=null,model=null}={}) { if(!agent||agent==='Unknown')return null; const at=timestamp instanceof Date?timestamp.getTime():new Date(timestamp).getTime(); if(!Number.isFinite(at))return null; return {agent,host:host||null,model:model||null,timestamp:new Date(at).toISOString(),kind,bytesAdded:Math.max(0,finite(size)-finite(previousSize))}; }
 export function activityIntensityAt(events, agent, at, {decayMs=ACTIVITY_DECAY_MS}={}) { return events.filter(event=>event.agent===agent).reduce((total,event)=>{const age=at-timestamp(event.timestamp);if(!Number.isFinite(age)||age<0||age>decayMs*7)return total;return total+activityEventWeight(event)*Math.exp(-age/decayMs);},0); }
 export function activitySeries(events, agent, now=Date.now(), {windowMs=ACTIVITY_WINDOW_MS,sampleMs=ACTIVITY_SAMPLE_MS,decayMs=ACTIVITY_DECAY_MS}={}) { const start=now-windowMs,points=[];for(let at=start;at<=now;at+=sampleMs)points.push({at,intensity:activityIntensityAt(events,agent,at,{decayMs})});return points; }
-export function activityMonitor(events, now=Date.now()) { return AGENTS.map(agent=>{const series=activitySeries(events,agent,now),intensity=series.at(-1)?.intensity||0,lastAt=Math.max(...events.filter(event=>event.agent===agent).map(event=>timestamp(event.timestamp)||0),0);return {agent,intensity,lastObservedAt:lastAt?new Date(lastAt).toISOString():null,state:intensity>=.12?'Active':'Idle',series};}); }
+export function activityMonitor(events, now=Date.now(), agents=null) { const names=[...new Set(agents||events.map(event=>event.agent).filter(Boolean))]; return names.map(agent=>{const series=activitySeries(events,agent,now),intensity=series.at(-1)?.intensity||0,lastAt=Math.max(...events.filter(event=>event.agent===agent).map(event=>timestamp(event.timestamp)||0),0);return {agent,intensity,lastObservedAt:lastAt?new Date(lastAt).toISOString():null,state:intensity>=.12?'Active':'Idle',series};}); }
 export function liveStateSnapshot({system=null,events=[],capacity=null,now=Date.now()}={}) { const cutoff=now-60_000;return {system,activity:{events:events.filter(event=>(timestamp(event.timestamp)||0)>=cutoff),windowSeconds:60},capacity,deliveredAt:new Date(now).toISOString()}; }
 
 const cpuTotals=cpus=>cpus.reduce((out,cpu)=>{for(const [name,value] of Object.entries(cpu.times||{}))out[name]=(out[name]||0)+finite(value);return out;},{});

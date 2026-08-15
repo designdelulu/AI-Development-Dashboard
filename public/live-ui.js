@@ -1,3 +1,5 @@
+import { brandOf, ADAPTER_AGENTS, CAPACITY_SOURCES } from './brands.js';
+
 const fmt = (n) => new Intl.NumberFormat().format(n || 0);
 const short = (n) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}K` : fmt(n);
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[x]));
@@ -12,52 +14,151 @@ const CATEGORY_LABELS = {
 };
 
 export function glyph(agent, size = '') {
-  const name = String(agent || '').toLowerCase();
-  const file = ['claude', 'codex', 'cursor'].includes(name) ? name : null;
-  if (!file) return `<span class="agent-glyph unknown ${size}" aria-hidden="true">${esc((agent || '?').slice(0, 1))}</span>`;
-  return `<span class="agent-glyph ${name} ${size}" aria-hidden="true"><img src="/assets/agents/${file}.png" alt=""></span>`;
+  const brand = brandOf(agent);
+  if (brand.file) return `<span class="agent-glyph ${esc(brand.id.toLowerCase())} ${size}" aria-hidden="true"><img src="/assets/agents/${esc(brand.file)}" alt=""></span>`;
+  return `<span class="agent-glyph fallback ${size}" aria-hidden="true">${esc(brand.letter)}</span>`;
+}
+
+export function liveLanes(events = [], sessions = [], { now = Date.now(), adapters = ADAPTER_AGENTS } = {}) {
+  void now;
+  const hostFor = { Claude: 'Claude Code', Codex: 'Codex CLI', Cursor: 'Cursor' };
+  const newest = [...sessions].sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+  const latestByHost = new Map();
+  for (const session of newest) {
+    const host = session.host || hostFor[session.agent] || session.agent;
+    if (host && !latestByHost.has(host)) latestByHost.set(host, session);
+  }
+  const lanes = [];
+  const seen = new Set();
+  for (const adapter of adapters) {
+    const host = hostFor[adapter] || adapter;
+    const recent = latestByHost.get(host);
+    const agent = recent?.agent || adapter;
+    lanes.push({
+      id: agent,
+      adapter,
+      eventAgent: adapter,
+      host: recent?.host || host,
+      agent,
+      model: recent?.model || null,
+      modelLabel: recent?.modelLabel || recent?.model || null,
+      provider: recent?.provider || null
+    });
+    seen.add(agent);
+    seen.add(adapter);
+  }
+  const extras = [];
+  for (const event of events) if (event.agent && !seen.has(event.agent)) extras.push(event.agent);
+  for (const session of newest) {
+    const host = session.host || hostFor[session.agent] || session.agent;
+    if (session.agent && !seen.has(session.agent) && !Object.values(hostFor).includes(host)) extras.push(session.agent);
+  }
+  for (const agent of [...new Set(extras)]) {
+    const recent = newest.find((session) => session.agent === agent) || events.find((event) => event.agent === agent) || {};
+    lanes.push({
+      id: agent,
+      adapter: null,
+      eventAgent: agent,
+      host: recent.host || agent,
+      agent,
+      model: recent.model || null,
+      modelLabel: recent.modelLabel || recent.model || null,
+      provider: recent.provider || null
+    });
+    seen.add(agent);
+  }
+  return lanes;
+}
+
+export function liveFeedSignalState(states = {}) {
+  const values = Object.values(states);
+  if (values.some((state) => state?.state === 'Working')) return { mode: 'working', label: 'An agent is working' };
+  if (values.some((state) => state?.state === 'Needs You' || state?.state === 'Recently Active')) return { mode: 'recent', label: 'Recent agent activity' };
+  return { mode: 'idle', label: 'All observed agents idle' };
 }
 
 export function tokenBarRows(contributions = []) {
   const available = contributions.filter((row) => row.available);
   const peak = Math.max(1, ...available.map((row) => row.observedActivity || 0));
   return contributions.map((row) => {
+    const name = row.agent || row.provider || row.model;
     if (!row.available) {
-      return `<div class="token-agent is-unavailable">${glyph(row.agent)}<div><strong>${esc(row.agent)}</strong><small>Unavailable</small></div><b>Unavailable</b></div>`;
+      const source = CAPACITY_SOURCES.find((item) => item.id === name);
+      const action = row.action?.href ? row.action : (source?.href ? { href: source.href, label: source.action } : null);
+      const link = action?.href ? `<a href="${esc(action.href)}" target="_blank" rel="noreferrer">${esc(action.label || 'View usage')}</a>` : '';
+      return `<div class="token-agent is-unavailable">${glyph(name)}<div><strong>${esc(name)}</strong><small>${esc(row.reason || 'Local token telemetry unavailable')}</small></div><b>${link || 'Local token telemetry unavailable'}</b></div>`;
     }
     const width = Math.max(3, ((row.observedActivity || 0) / peak) * 100);
     const share = Math.round((row.share || 0) * 100);
-    return `<div class="token-agent">${glyph(row.agent)}<div><strong>${esc(row.agent)}</strong><span class="token-track" aria-hidden="true"><i style="width:${width}%"></i></span></div><b>${short(row.observedActivity)} · ${share}%</b></div>`;
+    return `<div class="token-agent">${glyph(name)}<div><strong>${esc(name)}</strong><span class="token-track" aria-hidden="true"><i style="width:${width}%"></i></span></div><b>${short(row.observedActivity)} · ${share}%</b></div>`;
   }).join('');
 }
 
-export function tokenModule(report = {}, { selected = 'today', yesterday = null, expanded = false } = {}) {
-  const today = selected === 'today';
-  const comparison = today && yesterday ? `<div class="token-yesterday"><span>Yesterday</span><strong>${short(yesterday.observedActivity || 0)}</strong></div>` : '';
+function explainMarkup(explain = {}, report = {}) {
+  if (!explain) return '';
+  const range = explain.range || {};
+  const categories = Object.entries(CATEGORY_LABELS).map(([id, label]) => {
+    const value = Number(explain.tokens?.[id] || report.tokens?.[id]) || 0;
+    return `<li><span>${esc(label)}</span><b>${short(value)}</b></li>`;
+  }).join('');
+  const agents = (explain.byAgent || []).map((row) => `<li><span>${esc(row.agent)}${row.available ? '' : ' · unavailable'}</span><b>${row.available ? short(row.observedActivity) : esc(row.reason || 'Unavailable')}</b></li>`).join('');
+  const providers = (explain.byProvider || []).map((row) => `<li><span>${esc(row.provider)}</span><b>${short(row.observedActivity)}</b></li>`).join('') || '<li><span>No provider IDs in this range</span><b>—</b></li>';
+  const models = (explain.byModel || []).slice(0, 8).map((row) => `<li><span>${esc(row.model)}<small>${esc([row.provider, row.host, row.agent].filter(Boolean).join(' · '))}</small></span><b>${short(row.observedActivity)}</b></li>`).join('') || '<li><span>No model IDs in this range</span><b>—</b></li>';
+  const contributors = (explain.contributors || []).slice(0, 8).map((row) => `<li><span>${esc(row.agent)}${row.model ? ` · ${esc(row.model)}` : ''}<small>${esc(row.eventCount || 0)} events · usage ${esc(row.firstAt || '—')} → ${esc(row.lastAt || '—')}${row.recordUpdatedAt && row.recordUpdatedAt !== row.lastAt ? ` · record updated ${esc(row.recordUpdatedAt)}` : ''}</small></span><b>${short(tokenSum(row.tokens))}</b></li>`).join('') || '<li><span>No dated usage events in this range</span><b>—</b></li>';
+  const unavailable = (explain.unavailable || []).map((row) => `<li>${esc(row.agent)}: ${esc(row.reason)}</li>`).join('') || '<li>None</li>';
+  return `<section class="token-explain" data-token-explain-panel>
+    <h4>Why this number</h4>
+    <p>${esc(range.label || report.label || 'Selected range')} · ${esc(range.timezone || '')}. ${esc(explain.timestampDefinition || '')}</p>
+    <dl>
+      <div><dt>Observed token activity</dt><dd>${short(explain.observedActivity || 0)}</dd></div>
+      <div><dt>Fresh + Output</dt><dd>${short(explain.freshPlusOutput || 0)}</dd></div>
+      <div><dt>Source events</dt><dd>${fmt(explain.eventCount || 0)}</dd></div>
+      <div><dt>Sessions</dt><dd>${fmt(explain.sessionCount || 0)}</dd></div>
+    </dl>
+    <h5>Categories</h5><ul>${categories}</ul>
+    <h5>Agents / runtimes</h5><ul>${agents}</ul>
+    <h5>Providers</h5><ul>${providers}</ul>
+    <h5>Models</h5><ul>${models}</ul>
+    <h5>Contributing sessions</h5><ul>${contributors}</ul>
+    <h5>Unavailable sources</h5><ul>${unavailable}</ul>
+  </section>`;
+}
+
+function tokenSum(tokens = {}) {
+  return Object.values(tokens).reduce((sum, value) => sum + (Number(value) || 0), 0);
+}
+
+export function tokenModule(report = {}, { selected = 'today', yesterday = null, expanded = false, explainOpen = false } = {}) {
+  const rangeLabel = report.label || 'Selected period';
+  const comparison = selected === 'today' && yesterday ? `<div class="token-yesterday"><span>Yesterday</span><strong>${short(yesterday.observedActivity || 0)}</strong></div>` : '';
   const categories = Object.entries(CATEGORY_LABELS).map(([id, label]) => {
     const value = Number(report.tokens?.[id]) || 0;
     if (!value && id !== 'freshInput' && id !== 'output' && id !== 'cacheRead' && id !== 'cacheCreation') return '';
-    return `<div class="token-category"><span>${esc(label)}</span><b>${short(value)}</b></div>`;
+    return `<div class="token-category"><span>${esc(label)} · ${esc(rangeLabel)}</span><b>${short(value)}</b></div>`;
   }).join('');
   const models = (report.byModel || []).slice(0, 8).map((row) => `<div class="token-model"><span>${esc(row.model)}</span><small>${esc([row.provider, row.host, row.agent].filter(Boolean).join(' · '))}</small><b>${short(row.observedActivity)}</b></div>`).join('') || `<div class="empty">No observed model IDs in this period.</div>`;
+  const providers = (report.byProvider || []).map((row) => `<div class="token-model"><span>${esc(row.provider)}</span><small>provider</small><b>${short(row.observedActivity)}</b></div>`).join('');
   return `<section class="token-module panel" data-token-period="${esc(selected)}">
     <header class="token-head">
-      <div><span class="kicker">TOKEN ACTIVITY</span><h3>${esc(report.label || 'Observed token activity')}</h3></div>
-      <p>Observed token activity includes cache. Fresh + Output is ${short(report.freshPlusOutput || 0)}. This is not billed subscription usage.</p>
+      <div><span class="kicker">TOKEN ACTIVITY · ${esc(rangeLabel)}</span><h3>Observed token activity</h3></div>
+      <p title="Includes cache reads/writes. Not the same as fresh tokens or subscription usage.">Includes cache reads/writes. Not billed usage. Fresh + Output · ${esc(rangeLabel)} is ${short(report.freshPlusOutput || 0)}.</p>
     </header>
-    <button class="token-hero" data-token-expand="1" aria-expanded="${expanded}">
-      <span>${esc(today ? 'Today' : report.label || 'Selected period')}</span>
+    <button class="token-hero" data-token-expand="1" aria-expanded="${expanded}" title="Includes cache reads and writes. Fresh + Output excludes cache.">
+      <span>${esc(rangeLabel)}</span>
       <strong>${short(report.observedActivity || 0)}</strong>
       <small>observed token activity</small>
     </button>
     <div class="token-agents">${tokenBarRows(report.byAgent || [])}</div>
     ${comparison}
     <div class="token-periods">${TOKEN_PERIOD_BUTTONS.map(([id, label]) => `<button data-token-period="${id}" class="${id === selected ? 'selected' : ''}" aria-pressed="${id === selected}">${esc(label)}</button>`).join('')}</div>
+    <div class="token-actions"><button class="text-action" data-token-explain="1" aria-expanded="${explainOpen}">Explain this number</button></div>
     <div class="token-detail" ${expanded ? '' : 'hidden'}>
-      <div class="token-categories">${categories}<div class="token-category emphasis"><span>Fresh + Output</span><b>${short(report.freshPlusOutput || 0)}</b></div></div>
+      <div class="token-categories">${categories}<div class="token-category emphasis"><span>Fresh + Output · ${esc(rangeLabel)}</span><b>${short(report.freshPlusOutput || 0)}</b></div></div>
+      ${providers ? `<h4>By provider</h4>${providers}` : ''}
       <h4>By model</h4>
       ${models}
     </div>
+    ${explainOpen ? explainMarkup(report.explain, report) : ''}
   </section>`;
 }
 

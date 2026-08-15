@@ -8,7 +8,11 @@ This local-only dashboard packages optimized PNG copies of native application ic
 | Codex | `/Applications/ChatGPT.app/Contents/Resources/icon-codex-light.png` | `public/assets/agents/codex.png` |
 | Cursor | `/Applications/Cursor.app/Contents/Resources/Cursor.icns` | `public/assets/agents/cursor.png` |
 
-Each asset remains unmodified in aspect ratio; the dashboard only creates a 512px display copy. The images are embedded into generated SVG cards so local PNG export remains self-contained. They do not imply provider endorsement, partnership, or affiliation.
+Each asset remains unmodified in aspect ratio; the dashboard only creates a 512px display copy. The images are embedded into generated SVG cards so local PNG export remains self-contained. They do not imply provider endorsement, partnership, or affiliation. Models without a distinct official mark use the provider/agent mark plus the model name. Unknown identities use a letter fallback; the dashboard does not hotlink or scrape logo sites.
+
+## README and article screenshots
+
+Canonical live-activity capture lives in the Design Delulu article as `designdelulu-site/images/blog/ai-development-dashboard-live-activity-capacity.webp` (real local signal field, privacy-safe). The GitHub README hero `docs/assets/ai-development-dashboard-live-activity.png` is a repository-local PNG derived from that same source. Overview and Live Feed shots remain additional product documentation, not substitutes for the live-activity hero.
 
 ## Achievement badge artwork
 

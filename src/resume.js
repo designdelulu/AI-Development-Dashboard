@@ -1,5 +1,6 @@
 import { classifyAgentState } from '../public/agent-state.js';
 import { localDateKey } from './tokens.js';
+import { ADAPTER_AGENTS } from './brands.js';
 
 const HEADLINE = new Set(['Confirmed', 'Strongly inferred']);
 const SECRET_FILE = /(\.env(?:$|\.)|credentials|id_rsa|\.pem$|secret|token\.json|\.netrc)/i;
@@ -24,8 +25,9 @@ export function recentCapabilitiesForProject(index, projectId, limit = 4) {
   return ranked;
 }
 
-export function liveStatesFromEvents(events = [], agents = ['Claude', 'Codex', 'Cursor'], now = Date.now(), attentionSignals = {}) {
-  return Object.fromEntries(agents.map((agent) => [agent, classifyAgentState(events, agent, now, { sourceKnown: true, attention: attentionSignals[agent] || null })]));
+export function liveStatesFromEvents(events = [], agents = ADAPTER_AGENTS, now = Date.now(), attentionSignals = {}) {
+  const names = [...new Set([...(agents || []), ...events.map((event) => event.agent).filter(Boolean)])];
+  return Object.fromEntries(names.map((agent) => [agent, classifyAgentState(events, agent, now, { sourceKnown: true, attention: attentionSignals[agent] || null })]));
 }
 
 export function rankResumeCandidates(projects = [], sessions = [], { liveStates = {}, now = Date.now(), limit = 5 } = {}) {
@@ -77,7 +79,7 @@ function weeklyCodexWindow(capacity) {
   return provider.windows.find((window) => /weekly/i.test(window.label || '')) || provider.windows[0];
 }
 
-export function startHereRecommendation({ lastAgent = null, agentState = null, capacity = null, availableAgents = ['Claude', 'Codex', 'Cursor'] } = {}) {
+export function startHereRecommendation({ lastAgent = null, agentState = null, capacity = null, availableAgents = ADAPTER_AGENTS } = {}) {
   const available = (agent) => availableAgents.includes(agent);
   const unknownQuota = (agent) => agent === 'Claude' || agent === 'Cursor';
   const weekly = weeklyCodexWindow(capacity);
@@ -189,7 +191,7 @@ export function operatorSummary({ projects = [], sessions = [], liveStates = {},
   };
 }
 
-export function decorateResumeCards(cards, index, { capacity = null, availableAgents = ['Claude', 'Codex', 'Cursor'] } = {}) {
+export function decorateResumeCards(cards, index, { capacity = null, availableAgents = ADAPTER_AGENTS } = {}) {
   return cards.map((card) => {
     const capabilities = recentCapabilitiesForProject(index, card.project.id);
     const recommendation = startHereRecommendation({
@@ -207,8 +209,13 @@ export function decorateResumeCards(cards, index, { capacity = null, availableAg
   });
 }
 
-export function buildOperator(index, events = [], capacity = null, { now = Date.now(), availableAgents = ['Claude', 'Codex', 'Cursor'], attentionSignals = {} } = {}) {
-  const liveStates = liveStatesFromEvents(events, ['Claude', 'Codex', 'Cursor'], now, attentionSignals);
+export function buildOperator(index, events = [], capacity = null, { now = Date.now(), availableAgents = ADAPTER_AGENTS, attentionSignals = {} } = {}) {
+  const liveAgents = [...new Set([
+    ...ADAPTER_AGENTS,
+    ...(index.summary?.agents || []),
+    ...events.map((event) => event.agent).filter(Boolean)
+  ])];
+  const liveStates = liveStatesFromEvents(events, liveAgents, now, attentionSignals);
   const cards = decorateResumeCards(
     rankResumeCandidates(index.projects || [], index.sessions || [], { liveStates, now, limit: 5 }),
     index,

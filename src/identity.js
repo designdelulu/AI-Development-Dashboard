@@ -2,6 +2,8 @@
 // Role is never inferred for historical sessions. Provider/agent may be
 // inferred only from an observed model ID or a documented host default.
 
+import { cursorTokenAvailability } from './cursor-usage.js';
+
 export const TASK_ROLES = Object.freeze([
   'Planning',
   'Architecture',
@@ -21,12 +23,11 @@ export const KNOWN_HOSTS = Object.freeze([
   { id: 'jetbrains', label: 'JetBrains', kind: 'ide' },
   { id: 'kimi-code', label: 'Kimi Code', kind: 'cli' },
   { id: 'opencode', label: 'OpenCode', kind: 'cli' },
-  { id: 'munder-difflin', label: 'Munder Difflin', kind: 'harness' },
   { id: 'terminal', label: 'terminal', kind: 'shell' }
 ]);
 
 export const TOKEN_UNSUPPORTED_AGENTS = Object.freeze({
-  Cursor: 'Local records do not currently support trustworthy token totals.'
+  Cursor: cursorTokenAvailability().reason
 });
 
 const MODEL_PROVIDERS = [
@@ -116,8 +117,8 @@ export function harnessWorker({ agent, host, provider, model, role = null, sessi
 }
 
 export function agentTokenAvailability(agent) {
-  if (TOKEN_UNSUPPORTED_AGENTS[agent]) {
-    return { available: false, reason: TOKEN_UNSUPPORTED_AGENTS[agent] };
+  if (agent === 'Cursor' || TOKEN_UNSUPPORTED_AGENTS[agent]) {
+    return cursorTokenAvailability();
   }
   return { available: true, reason: null };
 }

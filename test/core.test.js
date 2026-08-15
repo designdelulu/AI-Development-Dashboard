@@ -221,7 +221,7 @@ test('utility launchers stay usable as drawer toggles',()=>{
   assert.match(css,/body\.utility-open \.actions/);
 });
 test('overview is an operator surface with resume, needs you, and start here',()=>{
-  const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8')+fs.readFileSync(path.join(process.cwd(),'public','live-ui.js'),'utf8')+fs.readFileSync(path.join(process.cwd(),'public','index.html'),'utf8');
+  const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8')+fs.readFileSync(path.join(process.cwd(),'public','live-ui.js'),'utf8')+fs.readFileSync(path.join(process.cwd(),'public','brands.js'),'utf8')+fs.readFileSync(path.join(process.cwd(),'public','index.html'),'utf8');
   assert.match(source,/Needs You/);
   assert.match(source,/Continue Working/);
   assert.match(source,/Start Here/);
@@ -259,23 +259,28 @@ test('token periods use local time and do not treat Cursor zeros as usage',()=>{
   const now=new Date(2026,7,15,21,30,0);
   const todayStart=periodBounds('today',now).start;
   const yesterdayStart=periodBounds('yesterday',now).start;
+  const todayAt=new Date(todayStart.getTime()+3_600_000).toISOString();
+  const yesterdayAt=new Date(yesterdayStart.getTime()+3_600_000).toISOString();
+  const todayKey=localDateKey(todayStart);
+  const yesterdayKey=localDateKey(yesterdayStart);
+  const day=(date,tokens,at)=>({date,tokens,eventCount:1,firstAt:at,lastAt:at});
   const sessions=[
-    {agent:'Claude',host:'Claude Code',provider:'Anthropic',model:'claude-opus-4',timestamp:new Date(todayStart.getTime()+3_600_000).toISOString(),tokens:{freshInput:100,output:20,cacheRead:400,cacheCreation:10,reasoning:0,other:0}},
-    {agent:'Codex',host:'Codex CLI',provider:'OpenAI',model:'gpt-5.6',timestamp:new Date(yesterdayStart.getTime()+3_600_000).toISOString(),tokens:{freshInput:50,output:10,cacheRead:0,cacheCreation:0,reasoning:0,other:0}},
+    {agent:'Claude',host:'Claude Code',provider:'Anthropic',model:'claude-opus-4',timestamp:todayAt,tokens:{freshInput:100,output:20,cacheRead:400,cacheCreation:10,reasoning:0,other:0},tokenDays:{[todayKey]:day(todayKey,{freshInput:100,output:20,cacheRead:400,cacheCreation:10,reasoning:0,other:0},todayAt)}},
+    {agent:'Codex',host:'Codex CLI',provider:'OpenAI',model:'gpt-5.6',timestamp:yesterdayAt,tokens:{freshInput:50,output:10,cacheRead:0,cacheCreation:0,reasoning:0,other:0},tokenDays:{[yesterdayKey]:day(yesterdayKey,{freshInput:50,output:10,cacheRead:0,cacheCreation:0,reasoning:0,other:0},yesterdayAt)}},
     {agent:'Cursor',host:'Cursor',provider:'Unknown',model:null,timestamp:new Date(todayStart.getTime()+2_000_000).toISOString(),tokens:{freshInput:0,output:0,cacheRead:0,cacheCreation:0,reasoning:0,other:0}}
   ];
   const {reports}=tokenReports(sessions,now,{knownAgents:['Claude','Codex','Cursor']});
   assert.equal(reports.today.tokens.freshInput,100);
   assert.equal(reports.today.observedActivity,530);
   assert.equal(reports.yesterday.tokens.freshInput,50);
-  assert.equal(reports['7d'].sessionCount,3);
-  assert.equal(reports.month.sessionCount,3);
-  assert.equal(reports.all.sessionCount,3);
+  assert.equal(reports['7d'].sessionCount,2);
+  assert.equal(reports.month.sessionCount,2);
+  assert.equal(reports.all.sessionCount,2);
   const cursor=reports.today.byAgent.find(row=>row.agent==='Cursor');
   const claude=reports.today.byAgent.find(row=>row.agent==='Claude');
   assert.equal(cursor.available,false);
   assert.equal(cursor.observedActivity,null);
-  assert.match(cursor.reason,/trustworthy token totals/);
+  assert.match(cursor.reason,/Local token telemetry unavailable/);
   assert.equal(claude.available,true);
   assert.equal(Math.round(claude.share*100),100);
   assert.equal(localDateKey(now),'2026-08-15');
@@ -301,7 +306,7 @@ test('model provider and host stay separate and roles are never invented',()=>{
   assert.equal(kimi.role,null);
   assert.equal(inferAgentFromModel('deepseek-v4-flash','Claude'),'DeepSeek');
   assert.equal(inferProvider('gpt-5.6').provider,'OpenAI');
-  const run=emptyHarnessRun({harness:'munder-difflin',task:'Live Feed',workers:[harnessWorker({agent:'Kimi',host:'Kimi Code',provider:'Moonshot',model:'kimi-k3',role:'Implementation'})]});
+  const run=emptyHarnessRun({harness:'custom-harness',task:'Live Feed',workers:[harnessWorker({agent:'Kimi',host:'Kimi Code',provider:'Moonshot',model:'kimi-k3',role:'Implementation'})]});
   assert.equal(run.workers[0].role,'Implementation');
   assert.equal(emptyHarnessRun().workers.length,0);
   const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
@@ -345,7 +350,7 @@ test('public-release privacy validator flags secrets and owner paths in source',
 test('Live Feed keeps the validated telemetry surface out of Overview',()=>{
   const app=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
   const html=fs.readFileSync(path.join(process.cwd(),'public','index.html'),'utf8');
-  assert.match(html,/<button data-view="live">Live Feed<\/button>/);
+  assert.match(html,/<button data-view="live">Live Feed <span class="live-feed-signal"/);
   assert.match(app,/requestedView\(/);
   assert.match(app,/\?view=/);
   assert.match(app,/function liveFeed\(/);
@@ -359,10 +364,11 @@ test('Live Feed keeps the validated telemetry surface out of Overview',()=>{
 });
 
 test('token module markup stays honest about cache and unavailable agents',()=>{
-  const html=tokenModule({label:'Today',observedActivity:530,freshPlusOutput:120,tokens:{freshInput:100,output:20,cacheRead:400,cacheCreation:10},byAgent:[{agent:'Claude',available:true,observedActivity:530,share:1},{agent:'Cursor',available:false,reason:'unavailable'}]},{selected:'today',yesterday:{observedActivity:60},expanded:true});
+  const html=tokenModule({label:'Today',observedActivity:530,freshPlusOutput:120,tokens:{freshInput:100,output:20,cacheRead:400,cacheCreation:10},byAgent:[{agent:'Claude',available:true,observedActivity:530,share:1},{agent:'Cursor',available:false,reason:'Local token telemetry unavailable'}]},{selected:'today',yesterday:{observedActivity:60},expanded:true});
   assert.match(html,/observed token activity/);
-  assert.match(html,/Fresh \+ Output/);
-  assert.match(html,/Unavailable/);
+  assert.match(html,/Fresh \+ Output · Today/);
+  assert.match(html,/Local token telemetry unavailable/);
   assert.doesNotMatch(html,/>Tokens Used</);
+  assert.doesNotMatch(html,/>Unavailable</);
 });
 

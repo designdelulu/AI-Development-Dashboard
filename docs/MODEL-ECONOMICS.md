@@ -9,7 +9,7 @@ Keep these separate in records and UI:
 | Dimension | Meaning | Example |
 | --- | --- | --- |
 | Agent | Product identity the operator talks to | Claude, Codex, Kimi, DeepSeek |
-| Host | Harness or editor | Claude Code, Codex CLI, Cursor, Kimi Code, OpenCode, Munder Difflin, VS Code |
+| Host | Harness or editor | Claude Code, Codex CLI, Cursor, Kimi Code, OpenCode, VS Code |
 | Provider | Model vendor | Anthropic, OpenAI, Moonshot, DeepSeek, xAI |
 | Model | Exact observed ID | `kimi-k3`, `deepseek-v4-flash` |
 | Role | Task role only when recorded | Architecture, Implementation, QA, Audit |
@@ -45,7 +45,7 @@ Three levels, kept separate:
 
 1. **Recommendation** — “Use Kimi/DeepSeek for this implementation task.” Overview / Start Here may say this later from evidence, not from marketing.
 2. **Handoff / launch** — prepare context and open a supported installed host.
-3. **Automated orchestration** — a harness such as Munder Difflin assigns roles. The dashboard should observe that run, not become the inference proxy.
+3. **Automated orchestration** — an external harness assigns roles. The dashboard should observe that run, not become the inference proxy.
 
 True API routing through this dashboard is out of scope until the operator supplies official keys and a dedicated, visible routing surface.
 

@@ -6,15 +6,17 @@ It watches the Git projects on your machine and the local Claude, Codex, and Cur
 
 > Private beta: the GitHub repository is private. This is not a hosted service.
 
+![Live Agent Activity — observed Claude, Codex, and Cursor signal field](docs/assets/ai-development-dashboard-live-activity.png)
+
 ![Overview — pick up where you left off](docs/assets/ai-development-dashboard-overview.png)
 
-![Live Feed — agent activity, plan capacity, and observed token activity](docs/assets/ai-development-dashboard-live-feed.png)
+![Live Feed — plan capacity and observed token activity](docs/assets/ai-development-dashboard-live-feed.png)
 
 ## Why it exists
 
 Modern development is often spread across more than one AI tool. Provider dashboards start with a vendor. Skill managers start with a folder. Token trackers start with usage. This dashboard starts with the **project**, then attaches agents, hosts, models, sessions, capabilities, and observable activity.
 
-It is not a token tracker, not a multi-agent harness, and not a skill installer. [Munder Difflin](https://github.com/chaitanyagiri/munder-difflin) is a strong example of an execution/orchestration harness; this product remains the operating and analytics layer around projects. See [docs/MUNDER-DIFFLIN-COMPARISON.md](docs/MUNDER-DIFFLIN-COMPARISON.md).
+It is not a token tracker, not a multi-agent harness, and not a skill installer. It remains the operating and analytics layer around projects.
 
 ## Start
 
@@ -47,7 +49,7 @@ Pick up where you left off: Today, Start Here, Needs You, Continue Working, and 
 
 ### Live Feed
 
-Ambient telemetry: live Claude / Codex / Cursor activity, current agent states, plan capacity, RAM/CPU/dashboard footprint, and token activity for Today / Yesterday / 7 days / This month / Since tracking began.
+Ambient telemetry: live lanes for observed runtimes, current agent states, plan capacity, RAM/CPU/dashboard footprint, and token activity for the selected range (Today / Yesterday / 7 days / This month / Since tracking began).
 
 ### Projects, Capabilities, Maintenance
 
@@ -72,7 +74,7 @@ The dashboard never shows invented Claude/Cursor subscription quota, subscriptio
 | Observed token activity | Sum of observed categories, including cache |
 | Fresh + Output | Fresh input plus output only |
 
-Cursor token totals are **Unavailable** in the current local record format. A zero never means “this provider used nothing” when the source cannot expose tokens.
+Cursor **local token telemetry is unavailable** in the current adapter. Cursor itself still shows usage in the Cursor account dashboard. A zero never means “this provider used nothing” when the source cannot expose tokens. Official Usage CSV import is a documented future option, not required now.
 
 ## Privacy
 
@@ -84,15 +86,15 @@ No network request is made by the scanner or server. `.dashboard-data/` is local
 | --- | --- | --- |
 | Claude Code | Session metadata, supported token fields, structured skill attribution, live session-file activity | No supported local subscription percentage. A Kimi/DeepSeek model ID in those files is recorded as a different provider/model, not collapsed into “Claude tokens.” |
 | Codex CLI | Session metadata, working-directory attribution, native weekly remaining %, live session-file activity | Token categories depend on what local records expose. |
-| Cursor | Safe session presence, encoded project attribution, live WAL/`agent-tools` mtime | Token totals unavailable. Transcript files are often empty while an agent is working. |
+| Cursor | Safe session presence, encoded project attribution, live WAL/`agent-tools` mtime | Local token telemetry unavailable. Cursor still tracks usage in its own account dashboard. Transcript files are often empty while an agent is working. |
 | Git | Repository identity and descriptive change activity | LOC and churn are descriptive, not productivity scores. |
 | VS Code | Installed AI-related extensions only | Not counted as AI activity. |
 
 ## Limitations
 
-Not reliable yet: Cursor token usage, completed-task attribution, accepted changes, rework/reverts, Claude/Cursor plan remaining, third-party update availability, automated capability modification, and API cost as a stand-in for subscription savings.
+Not reliable yet: Cursor **local** token telemetry, completed-task attribution, accepted changes, rework/reverts, Claude/Cursor plan remaining, third-party update availability, automated capability modification, and API cost as a stand-in for subscription savings.
 
-Orchestration of multiple workers is **not** this product’s runtime. The index can represent a harness run so a future adapter (for example Munder Difflin) can feed telemetry. See [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md).
+Orchestration of multiple workers is **not** this product’s runtime. The index can represent a harness run so a future adapter can feed telemetry. See [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md).
 
 ## Public-release status
 

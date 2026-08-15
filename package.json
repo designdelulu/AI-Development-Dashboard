@@ -7,7 +7,7 @@
   "scripts": {
     "scan": "node src/cli.js scan",
     "start": "node src/cli.js serve",
-    "test": "node --test test/core.test.js"
+    "test": "node --test test/*.test.js"
   },
   "engines": { "node": ">=20" }
 }

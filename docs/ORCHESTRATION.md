@@ -1,6 +1,6 @@
 # Orchestration foundation
 
-Decision date: 2026-08-15. See [MUNDER-DIFFLIN-COMPARISON.md](./MUNDER-DIFFLIN-COMPARISON.md).
+Decision date: 2026-08-15.
 
 ## Sidebar
 
@@ -20,7 +20,7 @@ Project → Harness run → Worker agent → Provider → Model → Role → Ses
 - `harnessRuns` is present on the index and empty until an adapter or the operator records a run.
 - VS Code remains an editor host inventory, not an AI agent.
 
-This is enough for a later Munder / OpenCode / Kimi Code adapter to attach workers without rewriting Overview.
+This is enough for a later OpenCode / Kimi Code / custom-harness adapter to attach workers without rewriting Overview.
 
 ## What is not implemented
 

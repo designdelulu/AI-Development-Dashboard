@@ -6,6 +6,7 @@ Thank you for considering a contribution. This project is currently a private lo
 
 - Do not add raw agent transcripts, prompts, credentials, cookies, provider tokens, absolute private paths, or generated `.dashboard-data/` files.
 - Keep agent adapters conservative: unknown data stays unknown.
+- Keep agent, host, provider, model, and account/capacity source as separate fields. Do not collapse a hosted model into the host’s brand.
 - Keep analytics and sharing separate. Public-safe snapshots may only use explicitly allowlisted aggregate fields.
 - Add deterministic sanitized fixtures for parser, attribution, privacy, or metric changes.
 - Do not alter external agent configuration as part of dashboard behavior.

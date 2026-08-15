@@ -3,7 +3,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
-const AGENTS = ['Claude', 'Codex', 'Cursor'];
+import { ADAPTER_AGENTS } from './brands.js';
+
+const AGENTS = ADAPTER_AGENTS;
 
 function exists(file) {
   try { return file && fs.existsSync(file); } catch { return false; }

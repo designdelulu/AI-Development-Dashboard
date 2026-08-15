@@ -1,6 +1,6 @@
 # Metrics
 
-Metric definitions version: 2.0.
+Metric definitions version: 2.1.
 
 ## Token fields
 
@@ -14,7 +14,9 @@ Metric definitions version: 2.0.
 | Total observed token activity | Sum of the above observed categories. Useful for describing model work; deliberately not called “tokens used.” | Subscription billing, plan allowance, or API cost. |
 | Fresh + Output | Fresh input plus output only. | Cache activity or billed subscription usage. |
 
-Period reports use the operator’s **local timezone**: Today, Yesterday, Last 7 days, This month, and Since tracking began. They are sliced from the normalized session index / daily token calendar, not by rereading transcripts. Cursor remains **Unavailable** for token contribution rather than a misleading zero.
+Period reports use the operator’s **local timezone**: Today, Yesterday, Last 7 days, This month, and Since tracking began. Calendar days come from **usage-event timestamps**, not scan time, index update time, file mtime, or session end time. A session that spans midnight is split across local calendar days. Identity backfill (`recordedAt`) does not move historical usage into today. Cursor remains **Local token telemetry unavailable** rather than a misleading zero. Cursor itself still exposes usage in the Cursor account dashboard; this adapter has no validated local token ledger. Official Usage CSV import is a planned fallback.
+
+Every token card inherits the selected range. Fresh + Output is labelled with that range (for example `Fresh + Output · Today`). Observed token activity includes cache reads/writes and is not billed usage. **Explain this number** shows range, timezone, category/agent/provider/model breakdown, source event counts, and contributing sessions without prompt bodies.
 
 Missing fields remain unavailable/zero in their category. A zero never means a provider used no tokens; it may mean the local source does not expose that field. Agent, host, provider and model contribution are reported separately when those fields exist.
 
@@ -58,7 +60,7 @@ The backend checks the known live files every 1.5 seconds and the browser reques
 
 Cursor agent-transcripts are often empty while a current agent is working, so transcripts are not required. A WAL mtime change with unchanged size still counts as one event. The dashboard never parses SQLite, WAL payloads, or transcript bodies. `canvases/`, `mcps/`, and `node_modules` are ignored. A file update has a deterministic base weight plus a capped log-scale byte-growth contribution. It is evidence of local session output/activity, not remote compute.
 
-The live field draws **separate lanes** for Claude, Codex and Cursor instead of overlapping 3px traces, and Cursor uses a higher-contrast teal so it does not disappear into Claude’s idle carrier.
+The live field draws **separate lanes** for observed runtimes instead of overlapping traces. A Kimi model running through Claude Code appears as Kimi via Claude Code, not as a Claude model. Plan capacity stays on account/subscription sources and is not cloned onto every model lane.
 
 The live-pipeline repair also corrected the Canvas clock: `requestAnimationFrame` supplies a page-relative timestamp, while agent events use Unix epoch timestamps. The monitor now uses `Date.now()` when computing event age. Comparing those two clock domains previously made every genuine live event appear impossibly old and forced traces to baseline.
 

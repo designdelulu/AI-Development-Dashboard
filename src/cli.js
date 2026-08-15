@@ -10,6 +10,7 @@ import { isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
 import { loadSettings, saveSettings } from './config.js';
 import { releaseInfo } from './release.js';
+import { ADAPTER_AGENTS } from './brands.js';
 import { tokenReportFromCalendar } from './tokens.js';
 import { buildOperator, lastSessionForProject, liveStatesFromEvents, projectHandoff, recentCapabilitiesForProject } from './resume.js';
 import { detectAgents, launchAgent, openAgentCommand } from './open-agent.js';
@@ -54,8 +55,8 @@ function index() {
   if (liveIndex) return liveIndex;
   if (!fs.existsSync(indexFile)) return refresh('startup');
   const stored = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
-  const needsIdentity = (stored.schemaVersion || 0) < 6 || (stored.sessions || []).some((session) => !session.provider || !session.host);
-  if (needsIdentity) return refresh('schema-identity');
+  const needsRescan = (stored.schemaVersion || 0) < 7 || (stored.sessions || []).some((session) => !session.provider || !session.host || (session.tokens && Object.values(session.tokens).some(Boolean) && !session.tokenDays));
+  if (needsRescan) return refresh('schema-identity');
   return (liveIndex = decorate(stored));
 }
 function body(req) { return new Promise((resolve) => { let text = ''; req.on('data', (d) => text += d); req.on('end', () => { try { resolve(JSON.parse(text || '{}')); } catch { resolve({}); } }); }); }
@@ -147,11 +148,12 @@ function watchSources() {
 }
 function availableAgentNames() {
   const detected = detectAgents();
-  return ['Claude', 'Codex', 'Cursor'].filter((agent) => detected[agent]?.available);
+  const names = Object.entries(detected).filter(([, info]) => info?.available).map(([agent]) => agent);
+  return names.length ? names : ADAPTER_AGENTS.filter((agent) => detected[agent]);
 }
 function liveState() {
   const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity });
-  snapshot.operator = buildOperator(index(), liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames().length ? availableAgentNames() : ['Claude', 'Codex', 'Cursor'], attentionSignals: Object.fromEntries(attentionSignals) });
+  snapshot.operator = buildOperator(index(), liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames().length ? availableAgentNames() : ADAPTER_AGENTS, attentionSignals: Object.fromEntries(attentionSignals) });
   snapshot.agents = detectAgents();
   return snapshot;
 }
@@ -185,7 +187,7 @@ function serve() {
     if (url.pathname === '/api/tokens') {
       const period = url.searchParams.get('period') || 'today';
       const current = index();
-      return json(res, current.tokenReports?.[period] || tokenReportFromCalendar(current.tokenCalendar || { days: {} }, period, new Date(), { knownAgents: current.summary?.agents || ['Claude', 'Codex', 'Cursor'] }));
+      return json(res, current.tokenReports?.[period] || tokenReportFromCalendar(current.tokenCalendar || { days: {} }, period, new Date(), { knownAgents: current.summary?.agents || [], unavailableAgents: {} }));
     }
     if (url.pathname === '/api/settings' && req.method === 'GET') return json(res, { ...loadSettings(dataDir), projectsRoots: currentSources().projectsRoots, needsProjectRoot: !(currentSources().projectsRoots || []).length });
     if (url.pathname === '/api/settings' && req.method === 'POST') {

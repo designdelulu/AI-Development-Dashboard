@@ -1,9 +1,10 @@
+import { brandPhase } from './brands.js';
+
 export const SIGNAL_WINDOW_MS=45_000;
 export const SIGNAL_EVENT_LIMIT=512;
 export const SIGNAL_ATTACK_MS=180;
 export const SIGNAL_DECAY_MS=7_500;
 
-const phase={Claude:.35,Codex:2.15,Cursor:4.25};
 const finite=value=>Number.isFinite(Number(value))?Number(value):0;
 const at=value=>{const time=new Date(value).getTime();return Number.isFinite(time)?time:null};
 
@@ -30,7 +31,7 @@ export function boundedSignalEvents(events,now=Date.now(),{windowMs=60_000,limit
 }
 
 export function signalBarSample(events,agent,sampleAt,index,{reducedMotion=false}={}){
-  const realEnergy=signalEnergy(events,agent,sampleAt),visualEnergy=Math.tanh(realEnergy*.52),agentPhase=phase[agent]||0;
+  const realEnergy=signalEnergy(events,agent,sampleAt),visualEnergy=Math.tanh(realEnergy*.52),agentPhase=brandPhase(agent);
   const baseline=reducedMotion?.002:.003+.006*(.5+.5*Math.sin(sampleAt/620+agentPhase+index*.19));
   const carrier=.34+.66*Math.abs(Math.sin(sampleAt/115+agentPhase*2+index*.71))*(.72+.28*Math.abs(Math.cos(index*.37+agentPhase)));
   const density=realEnergy>0?Math.min(1,.2+.8*visualEnergy):0,gate=.5+.5*Math.sin(index*1.77+agentPhase)<=density?1:.2;

@@ -14,7 +14,7 @@
 - [ ] Re-run privacy tests and manually inspect Share Stack, Manifest, Setup Prompt, Private Backup warnings, and every Share Story slide.
 - [x] Review screenshots and article images for private project names, prompts, notes, paths, credentials, and machine identifiers. Owner confirmed project names are fine to publish in README screenshots. Do not include prompts, notes, paths, credentials, or machine identifiers.
 - [x] Choose and add an explicit license (MIT, 2026-08-15).
-- [x] Re-check README, architecture, metrics, source discovery, limitations, contributing, privacy, and security documentation.
+- [x] Re-check README, architecture, metrics, source discovery, limitations, contributing, privacy, and security documentation. 2026-08-15: Cursor wording is local-adapter unavailable, not “Cursor does not track tokens.” Named competitor comparison docs removed from the public tree.
 - [ ] Confirm a fresh clone: `npm install` → `npm start` → configure project root → scan → dashboard. macOS needs Node 20+ and Git. Missing Claude/Codex/Cursor must degrade, not crash. Automated coverage exists for empty roots and missing Dropbox; a clean-machine run is still required before public.
 - [x] Confirm no hardcoded owner project root is required (Dropbox is detected only if present).
 - [x] Confirm footer Source code stays off until visibility is public, then set `repositoryPublic: true` in `.dashboard-data/settings.json`. No UI redesign required.

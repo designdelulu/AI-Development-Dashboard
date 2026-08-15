@@ -3,6 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { METRIC_VERSION } from './core.js';
+import { brandOf } from './brands.js';
 
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'..');
 const publicAsset=filename=>path.join(root,'public','assets','agents',filename);
@@ -33,10 +34,10 @@ export function createSnapshot(index,selection,format,snapshotsDir,period='month
 const esc=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[char]));
 const compact=value=>new Intl.NumberFormat('en',{notation:'compact',maximumFractionDigits:1}).format(Math.round(Number(value)||0));
 const metricText=metric=>metric.available===false?'Unavailable':metric.id==='tokensPerSessionTrend'?`${metric.value<0?'↓':'↑'} ${Math.abs(metric.value*100).toFixed(0)}%`:new Intl.NumberFormat('en').format(Math.round(Number(metric.value)||0));
-const agentColor=agent=>({Claude:'#E69B7C',Codex:'#D7D0C5',Cursor:'#79B8AA'}[agent]||'#FF2D78');
+const agentColor=(agent,index=0)=>brandOf(agent).fallback?['#FF2D78','#E69B7C','#79B8AA','#7EB6FF'][index%4]:brandOf(agent).color;
 export function agentMarkScale(value,max,{min=58,maxSize=260}={}){const count=Math.max(0,Number(value)||0),peak=Math.max(0,Number(max)||0);if(!count||!peak)return 0;return min+(maxSize-min)*Math.sqrt(count/peak);}
-export function agentAsset(agent){return agentImages[agent]||null;}
-const mark=(agent,x,y,size,opacity=1)=>{const href=agentAsset(agent);if(!href)return `<circle cx="${x}" cy="${y}" r="${size/2}" fill="${agentColor(agent)}" opacity="${opacity}"/>`;return `<image href="${href}" x="${x-size/2}" y="${y-size/2}" width="${size}" height="${size}" opacity="${opacity}" preserveAspectRatio="xMidYMid meet"/>`;};
+export function agentAsset(agent){return agentImages[agent]||agentImages[brandOf(agent).id]||null;}
+const mark=(agent,x,y,size,opacity=1)=>{const href=agentAsset(agent);if(!href){const brand=brandOf(agent);return `<g opacity="${opacity}"><circle cx="${x}" cy="${y}" r="${size/2}" fill="${brand.color}"/><text x="${x}" y="${y+size*0.18}" text-anchor="middle" fill="#141413" font-family="Arial,sans-serif" font-weight="700" font-size="${Math.max(18,size*0.38)}">${esc(brand.letter)}</text></g>`;}return `<image href="${href}" x="${x-size/2}" y="${y-size/2}" width="${size}" height="${size}" opacity="${opacity}" preserveAspectRatio="xMidYMid meet"/>`;};
 const metricById=(metrics,id)=>metrics.find(metric=>metric.id===id);
 const label=(text,x,y,size=18,color='#A39D97')=>`<text x="${x}" y="${y}" fill="${color}" font-family="Arial,sans-serif" font-size="${size}" letter-spacing="2.5">${esc(text.toUpperCase())}</text>`;
 const rule=(x,y,width)=>`<line x1="${x}" y1="${y}" x2="${x+width}" y2="${y}" stroke="#514C47" stroke-width="2"/>`;
