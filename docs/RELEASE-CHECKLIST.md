@@ -12,7 +12,7 @@
 
 - [x] Review the entire reachable Git history, not only the latest tree, for generated local analytics or private information. 2026-08-15: 19 commits scanned; no `.env`, `.dashboard-data`, handoff files, API keys, or private-key material in tracked history. Owner absolute paths are not present in tracked JS/HTML/CSS/JSON. Remaining public blockers are a true fresh-clone machine run and the visibility switch — not history remediation.
 - [ ] Re-run privacy tests and manually inspect Share Stack, Manifest, Setup Prompt, Private Backup warnings, and every Share Story slide.
-- [x] Review screenshots and article images for private project names, prompts, notes, paths, credentials, and machine identifiers. Current README screenshot shows live telemetry without project names. Do not replace it with an owner-machine Overview that lists private projects.
+- [x] Review screenshots and article images for private project names, prompts, notes, paths, credentials, and machine identifiers. Owner confirmed project names are fine to publish in README screenshots. Do not include prompts, notes, paths, credentials, or machine identifiers.
 - [x] Choose and add an explicit license (MIT, 2026-08-15).
 - [x] Re-check README, architecture, metrics, source discovery, limitations, contributing, privacy, and security documentation.
 - [ ] Confirm a fresh clone: `npm install` → `npm start` → configure project root → scan → dashboard. macOS needs Node 20+ and Git. Missing Claude/Codex/Cursor must degrade, not crash. Automated coverage exists for empty roots and missing Dropbox; a clean-machine run is still required before public.
