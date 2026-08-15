@@ -55,7 +55,7 @@ function index() {
   if (liveIndex) return liveIndex;
   if (!fs.existsSync(indexFile)) return refresh('startup');
   const stored = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
-  const needsRescan = (stored.schemaVersion || 0) < 7 || (stored.sessions || []).some((session) => !session.provider || !session.host || (session.tokens && Object.values(session.tokens).some(Boolean) && !session.tokenDays));
+  const needsRescan = (stored.schemaVersion || 0) < 8 || (stored.sessions || []).some((session) => !session.provider || !session.host || (session.tokens && Object.values(session.tokens).some(Boolean) && !session.tokenDays));
   if (needsRescan) return refresh('schema-identity');
   return (liveIndex = decorate(stored));
 }

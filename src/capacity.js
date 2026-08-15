@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { CAPACITY_SOURCES } from './brands.js';
+import { claudeCapacityFromState, installedClaudeVersion, readUsageState } from './claude-capacity.js';
 
 const unavailable=provider=>({provider,status:'Unavailable',message:'Plan usage unavailable through a supported local source.',source:null,observedAt:null,windows:[]});
 const finite=value=>Number.isFinite(Number(value))?Number(value):null;
@@ -12,10 +13,11 @@ function findRateLimits(value) { if(!value||typeof value!=='object')return null;
 function latestCodexCapacity(root) { const files=collect(root).sort((a,b)=>b.mtimeMs-a.mtimeMs).slice(0,20);let latest=null;for(const {file,size}of files){try{const length=Math.min(size,512*1024),buffer=Buffer.alloc(length),fd=fs.openSync(file,'r');fs.readSync(fd,buffer,0,length,size-length);fs.closeSync(fd);let text=buffer.toString('utf8');if(size>length)text=text.slice(text.indexOf('\n')+1);for(const line of text.split('\n')){if(!line.includes('rate_limits'))continue;try{const row=JSON.parse(line),raw=findRateLimits(row);if(!raw)continue;const observedAt=iso(row.timestamp)||new Date().toISOString();if(!latest||observedAt>latest.observedAt)latest={raw,observedAt};}catch{}}}catch{}}return latest; }
 export function readPlanCapacity(homeDir=os.homedir()) {
   const codex=latestCodexCapacity(path.join(homeDir,'.codex','sessions'));
+  const claude=claudeCapacityFromState(readUsageState(homeDir),{version:installedClaudeVersion(homeDir)});
   const byId={
-    Claude:unavailable('Claude'),
+    Claude:claude,
     Codex:codex?normalizeCapacity('Codex',codex.raw,codex.observedAt):unavailable('Codex'),
     Cursor:unavailable('Cursor')
   };
-  return {providers:CAPACITY_SOURCES.map(source=>byId[source.id]||unavailable(source.id)),sampledAt:new Date().toISOString(),privacy:'Uses native local metadata only; no credentials, cookies, browser DOM, or provider API calls. Capacity is account/plan telemetry, not a per-model card.'};
+  return {providers:CAPACITY_SOURCES.map(source=>byId[source.id]||unavailable(source.id)),sampledAt:new Date().toISOString(),privacy:'Uses native local metadata only; no credentials, cookies, browser DOM, or provider API calls. Capacity is account/plan telemetry, not a per-model card. Claude remaining percent is 100 minus statusline used_percentage.'};
 }

@@ -74,7 +74,7 @@ The dashboard never shows invented Claude/Cursor subscription quota, subscriptio
 | Observed token activity | Sum of observed categories, including cache |
 | Fresh + Output | Fresh input plus output only |
 
-Cursor **local token telemetry is unavailable** in the current adapter. Cursor itself still shows usage in the Cursor account dashboard. A zero never means “this provider used nothing” when the source cannot expose tokens. Official Usage CSV import is a documented future option, not required now.
+Cursor **local token telemetry** may be exact (context meter / rare non-zero bubble counts), estimated (documented character fallback when current Cursor builds store `{0,0}`), or **unavailable**. Cursor itself still shows usage in the Cursor account dashboard. A zero never means “this provider used nothing” when the source cannot expose tokens. Official Usage CSV import is a documented future option, not required now.
 
 ## Privacy
 
@@ -108,7 +108,7 @@ npm run scan
 npm start
 ```
 
-See [environment audit](docs/ENVIRONMENT-AUDIT.md), [architecture](docs/ARCHITECTURE.md), [metrics](docs/METRICS.md), [model economics](docs/MODEL-ECONOMICS.md), [sharing privacy](docs/SHARING-PRIVACY.md), [future benchmarks](docs/FUTURE-BENCHMARKS.md) and [reuse decisions](docs/REUSE-DECISIONS.md).
+See [environment audit](docs/ENVIRONMENT-AUDIT.md), [architecture](docs/ARCHITECTURE.md), [metrics](docs/METRICS.md), [telemetry sources](docs/TELEMETRY.md), [model economics](docs/MODEL-ECONOMICS.md), [sharing privacy](docs/SHARING-PRIVACY.md), [future benchmarks](docs/FUTURE-BENCHMARKS.md) and [reuse decisions](docs/REUSE-DECISIONS.md).
 
 ## License
 

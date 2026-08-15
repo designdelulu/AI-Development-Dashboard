@@ -26,9 +26,7 @@ export const KNOWN_HOSTS = Object.freeze([
   { id: 'terminal', label: 'terminal', kind: 'shell' }
 ]);
 
-export const TOKEN_UNSUPPORTED_AGENTS = Object.freeze({
-  Cursor: cursorTokenAvailability().reason
-});
+export const TOKEN_UNSUPPORTED_AGENTS = Object.freeze({});
 
 const MODEL_PROVIDERS = [
   { provider: 'Moonshot', pattern: /kimi|moonshot|(^|[^a-z])k3([^a-z]|$)|k2\.7-code/i, agent: 'Kimi' },
@@ -116,9 +114,9 @@ export function harnessWorker({ agent, host, provider, model, role = null, sessi
   };
 }
 
-export function agentTokenAvailability(agent) {
+export function agentTokenAvailability(agent, diagnostics = {}) {
   if (agent === 'Cursor' || TOKEN_UNSUPPORTED_AGENTS[agent]) {
-    return cursorTokenAvailability();
+    return cursorTokenAvailability(diagnostics);
   }
   return { available: true, reason: null };
 }

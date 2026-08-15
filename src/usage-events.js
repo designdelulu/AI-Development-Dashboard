@@ -1,5 +1,6 @@
 import { emptyTokens, tokenActivity } from './core-tokens.js';
 import { addTokens, localDateKey } from './tokens.js';
+import { TOKEN_EVIDENCE, addEvidence, emptyEvidence, evidenceFromCounts } from './token-evidence.js';
 
 const iso = (value) => {
   const date = new Date(value);
@@ -42,6 +43,7 @@ export function extractUsageEvent(row = {}) {
   return {
     timestamp,
     tokens,
+    evidence: row.evidence === TOKEN_EVIDENCE.estimated ? TOKEN_EVIDENCE.estimated : TOKEN_EVIDENCE.exact,
     recordType: picked.recordType,
     messageId: row.message?.id || null,
     requestId: row.requestId || row.payload?.id || null,
@@ -70,8 +72,22 @@ export function aggregateTokenDays(events = [], dateKey = localDateKey) {
   for (const event of events) {
     const date = dateKey(event.timestamp);
     if (!date) continue;
-    const day = days[date] || { date, tokens: emptyTokens(), eventCount: 0, firstAt: event.timestamp, lastAt: event.timestamp };
+    const evidence = event.evidence === TOKEN_EVIDENCE.estimated ? TOKEN_EVIDENCE.estimated : TOKEN_EVIDENCE.exact;
+    const day = days[date] || {
+      date,
+      tokens: emptyTokens(),
+      exactTokens: emptyTokens(),
+      estimatedTokens: emptyTokens(),
+      evidenceCounts: emptyEvidence(),
+      eventCount: 0,
+      firstAt: event.timestamp,
+      lastAt: event.timestamp
+    };
     day.tokens = addTokens(day.tokens, event.tokens);
+    if (evidence === TOKEN_EVIDENCE.estimated) day.estimatedTokens = addTokens(day.estimatedTokens, event.tokens);
+    else day.exactTokens = addTokens(day.exactTokens, event.tokens);
+    day.evidenceCounts = addEvidence(day.evidenceCounts, evidence);
+    day.evidence = evidenceFromCounts(day.evidenceCounts);
     day.eventCount += 1;
     if (event.timestamp < day.firstAt) day.firstAt = event.timestamp;
     if (event.timestamp > day.lastAt) day.lastAt = event.timestamp;

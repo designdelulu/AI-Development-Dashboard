@@ -1,5 +1,6 @@
 import { tokenActivity } from './core-tokens.js';
 import { agentTokenAvailability } from './identity.js';
+import { TOKEN_EVIDENCE, addEvidence, emptyEvidence, evidenceFromCounts, formatObservedTokens, mergeEvidenceLevel } from './token-evidence.js';
 
 export const TIMESTAMP_DEFINITION = 'Each token event is bucketed by the usage-record timestamp in the operator timezone. Scan time, index update time, file mtime, and session end time are not used as the usage date.';
 
@@ -32,9 +33,14 @@ export function resolvedTimeZone(now = new Date()) {
   }
 }
 
-export function localDateKey(value = new Date()) {
+export function localDateKey(value = new Date(), timeZone = resolvedTimeZone()) {
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return null;
+  try {
+    const formatted = new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+    const match = formatted.match(/\d{4}-\d{2}-\d{2}/);
+    if (match) return match[0];
+  } catch {}
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -122,15 +128,21 @@ export function buildTokenCalendar(sessions = [], now = new Date()) {
     for (const row of Object.values(tokenDays)) {
       const key = row.date || localDateKey(row.firstAt);
       if (!key) continue;
-      const day = days[key] || { date: key, tokens: emptyTokens(), byAgent: {}, byModel: {}, byHost: {}, byProvider: {}, sessionCount: 0, eventCount: 0, contributors: {} };
+      const day = days[key] || { date: key, tokens: emptyTokens(), exactTokens: emptyTokens(), estimatedTokens: emptyTokens(), evidenceCounts: emptyEvidence(), byAgent: {}, byModel: {}, byHost: {}, byProvider: {}, sessionCount: 0, eventCount: 0, contributors: {} };
       day.eventCount += row.eventCount || 0;
       day.sessionCount += 1;
       day.tokens = addTokens(day.tokens, row.tokens);
+      day.exactTokens = addTokens(day.exactTokens, row.exactTokens || (row.evidence === TOKEN_EVIDENCE.estimated ? emptyTokens() : row.tokens));
+      day.estimatedTokens = addTokens(day.estimatedTokens, row.estimatedTokens || (row.evidence === TOKEN_EVIDENCE.estimated ? row.tokens : emptyTokens()));
+      day.evidenceCounts = addEvidence(day.evidenceCounts, TOKEN_EVIDENCE.exact, row.evidenceCounts?.exact || (row.evidence === TOKEN_EVIDENCE.estimated ? 0 : row.eventCount || 0));
+      day.evidenceCounts = addEvidence(day.evidenceCounts, TOKEN_EVIDENCE.estimated, row.evidenceCounts?.estimated || (row.evidence === TOKEN_EVIDENCE.estimated ? row.eventCount || 0 : 0));
+      day.evidence = evidenceFromCounts(day.evidenceCounts);
       const agent = session.agent || 'Unknown';
-      const agentRow = day.byAgent[agent] || { agent, tokens: emptyTokens(), sessionCount: 0, eventCount: 0 };
+      const agentRow = day.byAgent[agent] || { agent, tokens: emptyTokens(), sessionCount: 0, eventCount: 0, evidence: row.evidence || session.tokenEvidence || TOKEN_EVIDENCE.exact };
       agentRow.tokens = addTokens(agentRow.tokens, row.tokens);
       agentRow.sessionCount += 1;
       agentRow.eventCount += row.eventCount || 0;
+      agentRow.evidence = mergeEvidenceLevel(agentRow.evidence, row.evidence || session.tokenEvidence || TOKEN_EVIDENCE.exact);
       day.byAgent[agent] = agentRow;
       if (session.model) {
         const modelRow = day.byModel[session.model] || { model: session.model, agent, host: session.host || null, provider: session.provider || null, tokens: emptyTokens(), sessionCount: 0, eventCount: 0 };
@@ -171,10 +183,11 @@ export function buildTokenCalendar(sessions = [], now = new Date()) {
 function mergeMaps(target, source, keyName) {
   for (const row of Object.values(source || {})) {
     const key = row[keyName];
-    const current = target[key] || { [keyName]: key, tokens: emptyTokens(), sessionCount: 0, eventCount: 0, agent: row.agent, host: row.host, provider: row.provider, model: row.model };
+    const current = target[key] || { [keyName]: key, tokens: emptyTokens(), sessionCount: 0, eventCount: 0, agent: row.agent, host: row.host, provider: row.provider, model: row.model, evidence: row.evidence || null };
     current.tokens = addTokens(current.tokens, row.tokens);
     current.sessionCount += row.sessionCount || 0;
     current.eventCount += row.eventCount || 0;
+    current.evidence = mergeEvidenceLevel(current.evidence, row.evidence);
     target[key] = current;
   }
   return target;
@@ -208,6 +221,7 @@ function contributionRows(map, { keyName = 'agent', unavailable = {}, includeZer
       [keyName]: name,
       available: true,
       reason: null,
+      evidence: map[name]?.evidence || TOKEN_EVIDENCE.exact,
       observedActivity,
       freshPlusOutput: freshPlusOutput(tokens),
       share: total ? observedActivity / total : 0,
@@ -225,10 +239,17 @@ function contributionRows(map, { keyName = 'agent', unavailable = {}, includeZer
   });
 }
 
-export function tokenReportFromCalendar(calendar, period = 'today', now = new Date(), { knownAgents = [], unavailableAgents = {} } = {}) {
+export function tokenReportFromCalendar(calendar, period = 'today', now = new Date(), { knownAgents = [], unavailableAgents = {}, diagnostics = {} } = {}) {
   const bounds = periodBounds(period, now);
   const days = daysInPeriod(calendar, bounds);
   const tokens = days.reduce((sum, day) => addTokens(sum, day.tokens), emptyTokens());
+  const exactTokens = days.reduce((sum, day) => addTokens(sum, day.exactTokens || emptyTokens()), emptyTokens());
+  const estimatedTokens = days.reduce((sum, day) => addTokens(sum, day.estimatedTokens || emptyTokens()), emptyTokens());
+  const evidenceCounts = days.reduce((sum, day) => ({
+    exact: sum.exact + (day.evidenceCounts?.exact || 0),
+    estimated: sum.estimated + (day.evidenceCounts?.estimated || 0)
+  }), emptyEvidence());
+  const evidence = evidenceFromCounts(evidenceCounts);
   const byAgent = {};
   const byModel = {};
   const byHost = {};
@@ -246,8 +267,15 @@ export function tokenReportFromCalendar(calendar, period = 'today', now = new Da
     for (const row of Object.values(day.contributors || {})) mergeContributor(contributors, row, row);
   }
   const unavailable = { ...unavailableAgents };
+  for (const agent of Object.keys(unavailable)) {
+    const hasActivity = tokenActivity(byAgent[agent]?.tokens) > 0 || (byAgent[agent]?.eventCount || 0) > 0;
+    if (hasActivity) delete unavailable[agent];
+  }
   for (const agent of knownAgents) {
-    const info = agentTokenAvailability(agent);
+    if (unavailable[agent]) continue;
+    const hasActivity = tokenActivity(byAgent[agent]?.tokens) > 0 || (byAgent[agent]?.eventCount || 0) > 0;
+    if (hasActivity) continue;
+    const info = agentTokenAvailability(agent, diagnostics);
     if (!info.available) unavailable[agent] = info.reason;
   }
   const report = {
@@ -261,8 +289,14 @@ export function tokenReportFromCalendar(calendar, period = 'today', now = new Da
     sessionCount,
     eventCount,
     observedActivity: tokenActivity(tokens),
+    exactObservedActivity: tokenActivity(exactTokens),
+    estimatedObservedActivity: tokenActivity(estimatedTokens),
+    evidence,
+    evidenceCounts,
     freshPlusOutput: freshPlusOutput(tokens),
     tokens,
+    exactTokens,
+    estimatedTokens,
     byAgent: contributionRows(byAgent, { keyName: 'agent', unavailable }),
     byModel: Object.values(byModel).map((row) => ({
       ...row,
@@ -282,6 +316,9 @@ export function tokenReportFromCalendar(calendar, period = 'today', now = new Da
     range: { id: report.period, label: report.label, from: report.from, to: report.to, timezone: report.timezone },
     timestampDefinition: report.timestampDefinition,
     observedActivity: report.observedActivity,
+    exactObservedActivity: report.exactObservedActivity,
+    estimatedObservedActivity: report.estimatedObservedActivity,
+    evidence: report.evidence,
     freshPlusOutput: report.freshPlusOutput,
     tokens: report.tokens,
     sessionCount: report.sessionCount,
@@ -302,4 +339,4 @@ export function tokenReports(sessions, now = new Date(), options = {}) {
   return { calendar, reports };
 }
 
-export { tokenActivity };
+export { tokenActivity, formatObservedTokens, TOKEN_EVIDENCE, mergeEvidenceLevel };

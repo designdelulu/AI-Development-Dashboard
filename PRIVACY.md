@@ -17,7 +17,7 @@ AI Development Dashboard is a local-first product. The scanner and localhost ser
 - source code from observed projects
 - Claude/Cursor subscription account data
 
-Cursor itself can show token usage in the Cursor account dashboard. This product does not scrape that dashboard. Local Cursor token totals stay unavailable until a validated local ledger or an official Usage CSV import exists.
+Cursor itself can show token usage in the Cursor account dashboard. This product does not scrape that dashboard. The local adapter may read `state.vscdb` **read-only** for `cursorDiskKV` token/context-meter metadata and text lengths. It never reads ItemTable auth keys, cookies, JWTs, or prompt bodies. Results are labelled Exact, Estimated, Mixed, or Unavailable. Official Usage CSV import remains a planned fallback.
 
 ## Sharing
 

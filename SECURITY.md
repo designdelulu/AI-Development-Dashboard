@@ -7,6 +7,7 @@ If you find a path that can expose private data through a public export, generat
 ## Sensitive material never accepted in contributions
 
 - API keys, access tokens, cookies, passwords, or environment values
+- Cursor `cursorAuth` / JWT / cookie material
 - raw Claude/Codex/Cursor transcripts or prompts
 - generated `.dashboard-data/` records or snapshots
 - private repository names, paths, project notes, and machine identifiers

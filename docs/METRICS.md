@@ -1,6 +1,6 @@
 # Metrics
 
-Metric definitions version: 2.1.
+Metric definitions version: 2.2.
 
 ## Token fields
 
@@ -14,9 +14,11 @@ Metric definitions version: 2.1.
 | Total observed token activity | Sum of the above observed categories. Useful for describing model work; deliberately not called “tokens used.” | Subscription billing, plan allowance, or API cost. |
 | Fresh + Output | Fresh input plus output only. | Cache activity or billed subscription usage. |
 
-Period reports use the operator’s **local timezone**: Today, Yesterday, Last 7 days, This month, and Since tracking began. Calendar days come from **usage-event timestamps**, not scan time, index update time, file mtime, or session end time. A session that spans midnight is split across local calendar days. Identity backfill (`recordedAt`) does not move historical usage into today. Cursor remains **Local token telemetry unavailable** rather than a misleading zero. Cursor itself still exposes usage in the Cursor account dashboard; this adapter has no validated local token ledger. Official Usage CSV import is a planned fallback.
+Period reports use the operator’s **local timezone**: Today, Yesterday, Last 7 days, This month, and Since tracking began. Calendar days come from **usage-event timestamps**, not scan time, index update time, file mtime, or session end time. A session that spans midnight is split across local calendar days. Identity backfill (`recordedAt`) does not move historical usage into today.
 
-Every token card inherits the selected range. Fresh + Output is labelled with that range (for example `Fresh + Output · Today`). Observed token activity includes cache reads/writes and is not billed usage. **Explain this number** shows range, timezone, category/agent/provider/model breakdown, source event counts, and contributing sessions without prompt bodies.
+Token evidence is explicit: **Exact** (provider/local numeric fields), **Estimated** (documented derivation, currently Cursor character/4 when current Cursor builds store `{0,0}` token counts), **Mixed** (an aggregate containing both), or **Unavailable**. Unavailable is never shown as zero. Cursor may show **Local token telemetry**, **Estimated local token telemetry**, or **Local token telemetry unavailable**. Cursor itself still exposes usage in the Cursor account dashboard. Official Usage CSV import remains a planned fallback.
+
+Every token card inherits the selected range. Fresh + Output is labelled with that range (for example `Fresh + Output · Today`). Observed token activity includes cache reads/writes and is not billed usage. **Explain this number** shows range, timezone, exact vs estimated totals, category/agent/provider/model breakdown, source event counts, and contributing sessions without prompt bodies.
 
 Missing fields remain unavailable/zero in their category. A zero never means a provider used no tokens; it may mean the local source does not expose that field. Agent, host, provider and model contribution are reported separately when those fields exist.
 
@@ -58,7 +60,7 @@ The backend checks the known live files every 1.5 seconds and the browser reques
 - `~/.cursor/projects/**/agent-tools/*`
 - `~/.cursor/projects/**/agent-transcripts/*.{json,jsonl}` when those files exist
 
-Cursor agent-transcripts are often empty while a current agent is working, so transcripts are not required. A WAL mtime change with unchanged size still counts as one event. The dashboard never parses SQLite, WAL payloads, or transcript bodies. `canvases/`, `mcps/`, and `node_modules` are ignored. A file update has a deterministic base weight plus a capped log-scale byte-growth contribution. It is evidence of local session output/activity, not remote compute.
+Cursor agent-transcripts are often empty while a current agent is working, so transcripts are not required. A WAL mtime change with unchanged size still counts as one event. The **live activity** path never parses SQLite, WAL payloads, or transcript bodies. Token analytics may read `state.vscdb` **read-only** (YELLOW undocumented local storage) for `cursorDiskKV` `bubbleId:` / `composerData:` metadata only: token counts, context-meter totals, timestamps, model ids, and text lengths. It does not read ItemTable auth keys, cookies, JWTs, or prompt bodies. `canvases/`, `mcps/`, and `node_modules` are ignored. A file update has a deterministic base weight plus a capped log-scale byte-growth contribution. It is evidence of local session output/activity, not remote compute.
 
 The live field draws **separate lanes** for observed runtimes instead of overlapping traces. A Kimi model running through Claude Code appears as Kimi via Claude Code, not as a Claude model. Plan capacity stays on account/subscription sources and is not cloned onto every model lane.
 
@@ -68,7 +70,7 @@ The frozen resource strip had a separate frontend failure: the first Overview re
 
 ## Plan capacity
 
-Plan capacity remains separate from local token analytics. Codex session records currently expose native structured `rate_limits` metadata including used percentage, window length, reset timestamp, and plan type; the dashboard normalizes this into percent remaining and refreshes its read-only local snapshot once per minute. Claude and Cursor expose no supported structured local remaining-plan source in the bounded audit, so they explicitly show `Plan usage unavailable through a supported local source.` No cookies, credentials, browser DOM, or unofficial provider endpoints are used.
+Plan capacity remains separate from local token analytics. Codex session records currently expose native structured `rate_limits` metadata including used percentage, window length, reset timestamp, and plan type; the dashboard normalizes this into percent remaining and refreshes its read-only local snapshot once per minute. Claude Code 2.1.80+ can expose official statusline `rate_limits.five_hour` / `seven_day` `used_percentage` and `resets_at` after the first API response for Claude.ai Pro/Max. The dashboard captures only those fields into `~/.claude/usage_state.json` via a statusline helper that **preserves any existing statusline command**. Remaining percent is `100 - used`. Missing fields are Waiting / Unsupported / Unavailable — never a fake 0%. Cursor still has no supported local plan-capacity source. No cookies, credentials, browser DOM, or unofficial provider endpoints are used.
 
 ## Share recap periods
 

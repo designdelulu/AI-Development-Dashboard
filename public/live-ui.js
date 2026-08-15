@@ -1,7 +1,11 @@
 import { brandOf, ADAPTER_AGENTS, CAPACITY_SOURCES } from './brands.js';
 
 const fmt = (n) => new Intl.NumberFormat().format(n || 0);
-const short = (n) => n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(0)}K` : fmt(n);
+const short = (n, evidence) => {
+  const amount = Number(n) || 0;
+  const compact = amount >= 1e6 ? `${(amount / 1e6).toFixed(1)}M` : amount >= 1e3 ? `${(amount / 1e3).toFixed(0)}K` : fmt(amount);
+  return evidence === 'estimated' || evidence === 'mixed' ? `~${compact}` : compact;
+};
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[x]));
 const TOKEN_PERIOD_BUTTONS = [['today', 'Today'], ['yesterday', 'Yesterday'], ['7d', '7D'], ['month', 'Month'], ['all', 'Since tracking']];
 const CATEGORY_LABELS = {
@@ -90,7 +94,9 @@ export function tokenBarRows(contributions = []) {
     }
     const width = Math.max(3, ((row.observedActivity || 0) / peak) * 100);
     const share = Math.round((row.share || 0) * 100);
-    return `<div class="token-agent">${glyph(name)}<div><strong>${esc(name)}</strong><span class="token-track" aria-hidden="true"><i style="width:${width}%"></i></span></div><b>${short(row.observedActivity)} · ${share}%</b></div>`;
+    const estimated = row.evidence === 'estimated' || row.evidence === 'mixed';
+    const badge = estimated ? '<em class="token-estimated">Estimated</em>' : '';
+    return `<div class="token-agent">${glyph(name)}<div><strong>${esc(name)} ${badge}</strong><span class="token-track" aria-hidden="true"><i style="width:${width}%"></i></span></div><b>${short(row.observedActivity, row.evidence)} · ${share}%</b></div>`;
   }).join('');
 }
 
@@ -101,17 +107,25 @@ function explainMarkup(explain = {}, report = {}) {
     const value = Number(explain.tokens?.[id] || report.tokens?.[id]) || 0;
     return `<li><span>${esc(label)}</span><b>${short(value)}</b></li>`;
   }).join('');
-  const agents = (explain.byAgent || []).map((row) => `<li><span>${esc(row.agent)}${row.available ? '' : ' · unavailable'}</span><b>${row.available ? short(row.observedActivity) : esc(row.reason || 'Unavailable')}</b></li>`).join('');
+  const agents = (explain.byAgent || []).map((row) => `<li><span>${esc(row.agent)}${row.available ? '' : ' · unavailable'}${row.evidence === 'estimated' || row.evidence === 'mixed' ? ' · estimated' : ''}</span><b>${row.available ? short(row.observedActivity, row.evidence) : esc(row.reason || 'Unavailable')}</b></li>`).join('');
   const providers = (explain.byProvider || []).map((row) => `<li><span>${esc(row.provider)}</span><b>${short(row.observedActivity)}</b></li>`).join('') || '<li><span>No provider IDs in this range</span><b>—</b></li>';
   const models = (explain.byModel || []).slice(0, 8).map((row) => `<li><span>${esc(row.model)}<small>${esc([row.provider, row.host, row.agent].filter(Boolean).join(' · '))}</small></span><b>${short(row.observedActivity)}</b></li>`).join('') || '<li><span>No model IDs in this range</span><b>—</b></li>';
   const contributors = (explain.contributors || []).slice(0, 8).map((row) => `<li><span>${esc(row.agent)}${row.model ? ` · ${esc(row.model)}` : ''}<small>${esc(row.eventCount || 0)} events · usage ${esc(row.firstAt || '—')} → ${esc(row.lastAt || '—')}${row.recordUpdatedAt && row.recordUpdatedAt !== row.lastAt ? ` · record updated ${esc(row.recordUpdatedAt)}` : ''}</small></span><b>${short(tokenSum(row.tokens))}</b></li>`).join('') || '<li><span>No dated usage events in this range</span><b>—</b></li>';
   const unavailable = (explain.unavailable || []).map((row) => `<li>${esc(row.agent)}: ${esc(row.reason)}</li>`).join('') || '<li>None</li>';
+  const exact = Number(explain.exactObservedActivity || 0);
+  const estimated = Number(explain.estimatedObservedActivity || 0);
+  const quality = explain.evidence === 'mixed'
+    ? `<div><dt>Exact</dt><dd>${short(exact)}</dd></div><div><dt>Estimated</dt><dd>${short(estimated, 'estimated')}</dd></div>`
+    : explain.evidence === 'estimated'
+      ? `<div><dt>Evidence</dt><dd>Estimated</dd></div>`
+      : `<div><dt>Evidence</dt><dd>${explain.evidence === 'unavailable' ? 'Unavailable' : 'Exact'}</dd></div>`;
   return `<section class="token-explain" data-token-explain-panel>
     <h4>Why this number</h4>
     <p>${esc(range.label || report.label || 'Selected range')} · ${esc(range.timezone || '')}. ${esc(explain.timestampDefinition || '')}</p>
     <dl>
-      <div><dt>Observed token activity</dt><dd>${short(explain.observedActivity || 0)}</dd></div>
-      <div><dt>Fresh + Output</dt><dd>${short(explain.freshPlusOutput || 0)}</dd></div>
+      <div><dt>Observed token activity</dt><dd>${short(explain.observedActivity || 0, explain.evidence)}</dd></div>
+      ${quality}
+      <div><dt>Fresh + Output</dt><dd>${short(explain.freshPlusOutput || 0, explain.evidence)}</dd></div>
       <div><dt>Source events</dt><dd>${fmt(explain.eventCount || 0)}</dd></div>
       <div><dt>Sessions</dt><dd>${fmt(explain.sessionCount || 0)}</dd></div>
     </dl>
@@ -130,7 +144,7 @@ function tokenSum(tokens = {}) {
 
 export function tokenModule(report = {}, { selected = 'today', yesterday = null, expanded = false, explainOpen = false } = {}) {
   const rangeLabel = report.label || 'Selected period';
-  const comparison = selected === 'today' && yesterday ? `<div class="token-yesterday"><span>Yesterday</span><strong>${short(yesterday.observedActivity || 0)}</strong></div>` : '';
+  const comparison = selected === 'today' && yesterday ? `<div class="token-yesterday"><span>Yesterday</span><strong>${short(yesterday.observedActivity || 0, yesterday.evidence)}</strong></div>` : '';
   const categories = Object.entries(CATEGORY_LABELS).map(([id, label]) => {
     const value = Number(report.tokens?.[id]) || 0;
     if (!value && id !== 'freshInput' && id !== 'output' && id !== 'cacheRead' && id !== 'cacheCreation') return '';
@@ -145,8 +159,8 @@ export function tokenModule(report = {}, { selected = 'today', yesterday = null,
     </header>
     <button class="token-hero" data-token-expand="1" aria-expanded="${expanded}" title="Includes cache reads and writes. Fresh + Output excludes cache.">
       <span>${esc(rangeLabel)}</span>
-      <strong>${short(report.observedActivity || 0)}</strong>
-      <small>observed token activity</small>
+      <strong>${short(report.observedActivity || 0, report.evidence)}</strong>
+      <small>observed token activity${report.evidence === 'mixed' ? ` · includes ${short(report.estimatedObservedActivity || 0, 'estimated')} estimated` : report.evidence === 'estimated' ? ' · estimated' : ''}</small>
     </button>
     <div class="token-agents">${tokenBarRows(report.byAgent || [])}</div>
     ${comparison}
