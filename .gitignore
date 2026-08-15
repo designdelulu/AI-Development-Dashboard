@@ -1,4 +1,5 @@
 .dashboard-data/
+qa-pass/
 node_modules/
 .DS_Store
 coverage/
