@@ -41,7 +41,7 @@ This dashboard indexes Git projects, Claude/Codex/Cursor session metadata, capab
 | Notifications | Optional Needs You | Slack / webhooks / remote control | Keep local-first |
 | Safety | Read-only observation | Circuit breaker + HITL | Do not copy execution safety into an observer |
 | Local-first / privacy | No network; gitignored index | Local hive git repo; official builds have opt-out telemetry | Dashboard should stay stricter |
-| Public release / licensing | License undecided; private repo | MIT code + non-commercial art | Do not vendor Munder assets |
+| Public release / licensing | MIT; GitHub still private | MIT code + non-commercial art | Do not vendor Munder assets |
 
 ## What Munder does better
 

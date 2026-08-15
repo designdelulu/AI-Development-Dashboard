@@ -6,7 +6,9 @@ It watches the Git projects on your machine and the local Claude, Codex, and Cur
 
 > Private beta: the GitHub repository is private. This is not a hosted service.
 
-![Live agent activity, plan capacity, and machine resources — this surface now lives on Live Feed](docs/assets/ai-development-dashboard-live-overview.png)
+![Overview — pick up where you left off](docs/assets/ai-development-dashboard-overview.png)
+
+![Live Feed — agent activity, plan capacity, and observed token activity](docs/assets/ai-development-dashboard-live-feed.png)
 
 ## Why it exists
 
@@ -94,7 +96,7 @@ Orchestration of multiple workers is **not** this product’s runtime. The index
 
 ## Public-release status
 
-Private repository. No license has been chosen yet; do not assume reuse rights. Enabling the in-app Source code link is a settings flag after the repository is made public. See [PRIVACY.md](PRIVACY.md), [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and the checklist: [docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md).
+MIT licensed ([LICENSE](LICENSE)). The GitHub repository is still private; enabling the in-app Source code footer link is a settings flag after the repository is made public. See [PRIVACY.md](PRIVACY.md), [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and the checklist: [docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md).
 
 ## Development
 
@@ -105,3 +107,7 @@ npm start
 ```
 
 See [environment audit](docs/ENVIRONMENT-AUDIT.md), [architecture](docs/ARCHITECTURE.md), [metrics](docs/METRICS.md), [model economics](docs/MODEL-ECONOMICS.md), [sharing privacy](docs/SHARING-PRIVACY.md), [future benchmarks](docs/FUTURE-BENCHMARKS.md) and [reuse decisions](docs/REUSE-DECISIONS.md).
+
+## License
+
+[MIT](LICENSE) © 2026 Eric Barker / Design Delulu

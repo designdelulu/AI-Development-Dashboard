@@ -22,4 +22,4 @@ Before opening a future pull request, run the tests, inspect `git diff --check`,
 
 ## License
 
-No license has been selected yet. Do not assume reuse rights until the repository owner publishes a license decision.
+Contributions are accepted under the MIT License. See [LICENSE](LICENSE).
