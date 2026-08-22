@@ -4,7 +4,7 @@
 
 Official Claude Code statusline JSON (v2.1.80+) may include `rate_limits.five_hour` and `rate_limits.seven_day` with `used_percentage` (0–100) and `resets_at` (Unix epoch seconds). Present for Claude.ai Pro/Max after the first API response. This installation was verified at Claude Code 2.1.198 against [statusline docs](https://code.claude.com/docs/en/statusline).
 
-The dashboard copies `scripts/claude-capacity-capture.mjs` to `~/.claude/ai-dashboard/` and sets `statusLine.command` to that helper, **chaining any existing statusline command**. Only rate-limit metadata is written to `~/.claude/usage_state.json`. Remaining percent is `100 - used`. These dashboard-generated files are never live-activity sources.
+An optional helper exists for a future explicit local-integration flow: it would copy `scripts/claude-capacity-capture.mjs` to `~/.claude/ai-dashboard/` and set `statusLine.command`, **chaining any existing statusline command**. Phase 1 scanning never invokes that helper or changes Claude settings. If explicitly enabled in a later reviewed flow, only rate-limit metadata is written to `~/.claude/usage_state.json`; remaining percent is `100 - used`. These dashboard-generated files are never live-activity sources.
 
 ## Cursor tokens
 

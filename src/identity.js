@@ -13,6 +13,12 @@ export const TASK_ROLES = Object.freeze([
   'Audit'
 ]);
 
+export const IDENTITY_REGISTRY_VERSION = 1;
+export const KNOWN_HARNESSES = Object.freeze([
+  { id: 'standalone', label: 'Standalone' },
+  { id: 'deepseek-harness', label: 'DeepSeek Harness' }
+]);
+
 export const KNOWN_HOSTS = Object.freeze([
   { id: 'claude-code', label: 'Claude Code', kind: 'cli' },
   { id: 'codex-cli', label: 'Codex CLI', kind: 'cli' },
@@ -56,6 +62,16 @@ export function displayModel(model) {
     .replace(/-/g, ' ');
 }
 
+export function normalizeModelId(model) {
+  const value = String(model || '').trim();
+  return value ? value.toLowerCase() : null;
+}
+
+export function normalizeHarness(harness) {
+  const value = String(harness || 'standalone').trim().toLowerCase();
+  return KNOWN_HARNESSES.some((item) => item.id === value) ? value : (value || 'standalone');
+}
+
 export function inferProvider(model, { agent = null } = {}) {
   const id = String(model || '').trim();
   if (id) {
@@ -73,18 +89,20 @@ export function inferAgentFromModel(model, fallbackAgent) {
   return fallbackAgent;
 }
 
-export function sessionIdentity({ agent, host, model, role = null, harness = 'standalone' } = {}) {
+export function sessionIdentity({ agent, host, provider = null, model, role = null, harness = 'standalone' } = {}) {
   const inferred = inferProvider(model, { agent });
   const resolvedAgent = inferAgentFromModel(model, agent);
   return {
     agent: resolvedAgent,
     host: host || agent,
-    provider: inferred.provider,
-    providerConfidence: inferred.confidence,
+    provider: provider || inferred.provider,
+    providerConfidence: provider ? 'Observed from source' : inferred.confidence,
     model: model || null,
+    modelRaw: model || null,
+    modelId: normalizeModelId(model),
     modelLabel: displayModel(model),
     role: TASK_ROLES.includes(role) ? role : null,
-    harness: harness || 'standalone'
+    harness: normalizeHarness(harness)
   };
 }
 

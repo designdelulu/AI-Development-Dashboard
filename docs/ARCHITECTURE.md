@@ -4,10 +4,10 @@
 
 ```text
 filesystem/Git ─┐
-Claude records ─┼─ adapters ─→ normalized JSON index ─→ localhost UI
-Codex records ──┤                     ↑
-Cursor records ─┤                     └─ source paths + compact metadata only
-capability files ┘
+Claude records ─┼─ adapter registry ─→ normalized JSON index ─→ localhost UI
+Codex records ──┤         ↑                   ↑
+Cursor records ─┤         └─ capability manifest + read-only context
+capability files ┘                             └─ source lifecycle state
 ```
 
 ## Canonical identity and confidence
@@ -17,6 +17,20 @@ Git root under the configured projects root is the canonical project identity. A
 ## Data retention
 
 The index records file paths, file fingerprints, timestamps, compact counters and metadata. It does not copy SKILL.md/CLAUDE.md/AGENTS.md content, prompt bodies, code, tool output or raw transcripts. Delete `.dashboard-data/` to reset local derived analytics; originals remain untouched.
+
+## Adapter and discovery foundation
+
+The adapter registry is versioned and capability-declared. An adapter can provide only the evidence it safely has (for example history, file-growth live activity, exact or estimated tokens, models, projects, capability inventory, or health); unsupported and unknown stay distinct. Its context intentionally omits shell, browser, credential, network, and write authority. Local read access can be independently disabled.
+
+Source lifecycle records keep **Installed**, **Historically observed**, **Live**, **Connected**, and health independent. Closed-tool discovery uses only allowlisted application, executable, and local-root probes; a root alone never claims past usage and no app is opened. The first-run card validates selected project folders, can be skipped, and keeps connected/local-write options disabled.
+
+Identity records retain agent, host, harness, provider, raw model ID, normalized model ID, and role as separate values. A provider explicitly observed by a future adapter takes precedence over a host default. Unknown identities use the UI fallback rather than a hardcoded catalog.
+
+## Local service lifecycle
+
+`ai-dashboard` is exposed through the package `bin` and provides `setup`, `open`, `start`, `stop`, `status`, and `doctor` from either the repository or an installed package. The server is loopback-only, records an atomic owned runtime record after binding, and verifies a random instance/control token before status or shutdown. Browser state-changing routes require a same-origin, HttpOnly local session cookie. A closed browser does not stop the service.
+
+Autostart is off. Phase 1 generates per-user LaunchAgent, Task Scheduler, or systemd-user plans only; it neither creates a job nor publishes a package. Update and uninstall commands are non-mutating previews until a release/security review authorizes those operations.
 
 ## Live refresh
 

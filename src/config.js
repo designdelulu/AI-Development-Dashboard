@@ -1,6 +1,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
+import { normalizePermissions } from './permissions.js';
+import { onboardingState } from './onboarding.js';
+
+export const SETTINGS_VERSION = 2;
 
 export const CANDIDATE_PROJECT_ROOTS = ['Dropbox/Projects', 'Projects'];
 
@@ -21,15 +25,15 @@ export function settingsFile(dataDir) {
 export function loadSettings(dataDir) {
   try {
     const value = JSON.parse(fs.readFileSync(settingsFile(dataDir), 'utf8'));
-    return value && typeof value === 'object' ? value : {};
+    return value && typeof value === 'object' ? { ...value, version: SETTINGS_VERSION, permissions: normalizePermissions(value.permissions), onboarding: onboardingState(value.onboarding) } : { version: SETTINGS_VERSION, permissions: normalizePermissions(), onboarding: onboardingState() };
   } catch {
-    return {};
+    return { version: SETTINGS_VERSION, permissions: normalizePermissions(), onboarding: onboardingState() };
   }
 }
 
 export function saveSettings(dataDir, patch = {}) {
   const current = loadSettings(dataDir);
-  const next = { ...current, ...patch };
+  const next = { ...current, ...patch, version: SETTINGS_VERSION, permissions: normalizePermissions(patch.permissions || current.permissions), onboarding: onboardingState(patch.onboarding || current.onboarding) };
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(settingsFile(dataDir), JSON.stringify(next, null, 2));
   return next;
