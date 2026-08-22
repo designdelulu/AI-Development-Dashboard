@@ -106,7 +106,7 @@ The Token Activity meter is an adaptive **visual aid**. Its intensity uses Fresh
 
 ### Appearance
 
-The dashboard keeps its dark Design Delulu visual system and hot-pink default accent. In **Maintenance → Appearance**, choose one of ten presets or enter a validated custom hex color. The setting previews immediately, persists locally, and does not affect semantic success, warning, or error colors. It is not included in Share Stats.
+The dashboard keeps its dark Design Delulu visual system and hot-pink default accent. In **Maintenance → Appearance**, choose one of ten clearly labeled presets, use the native visual color picker, or enter a validated custom hex color. The setting previews immediately, persists locally, and does not affect semantic success, warning, or error colors. Dashboard typography is tuned for comfortable laptop/desktop reading, with responsive fallbacks for mobile. The accent is not included in Share Stats.
 
 ## Privacy and security
 

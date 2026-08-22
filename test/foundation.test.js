@@ -197,6 +197,18 @@ test('appearance preference migrates locally, validates custom hex, and never ch
   assert.equal(storedAccent(storage), '#06B6D4');
 });
 
+test('appearance controls expose a visual picker and readable preset hierarchy', () => {
+  const appSource = fs.readFileSync(new URL('../public/app.js', import.meta.url), 'utf8');
+  const styleSource = fs.readFileSync(new URL('../public/overrides.css', import.meta.url), 'utf8');
+  assert.match(appSource, /input type="color" data-accent-picker/);
+  assert.match(appSource, /Preset colors/);
+  assert.match(appSource, /Choose visually/);
+  assert.match(appSource, /Reset to DD Pink/);
+  assert.match(styleSource, /\.accent-choice i\{width:36px;height:36px/);
+  assert.match(styleSource, /--type-body:16px/);
+  assert.match(styleSource, /linear-gradient\(var\(--accent-hover\),var\(--accent\)\)/);
+});
+
 function response(status, value) { return { ok: status >= 200 && status < 300, status, headers: { get: () => null }, text: async () => JSON.stringify(value) }; }
 function openRouterFixture() {
   const data = temp('openrouter'), calls = [];
