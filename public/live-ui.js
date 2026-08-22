@@ -51,9 +51,10 @@ export function liveFeedSignalState(states = {}) {
   return { mode: 'idle', label: 'All observed agents idle' };
 }
 
-export function tokenBarRows(contributions = []) {
+export function tokenBarRows(contributions = [], { visualCeiling = null } = {}) {
   const available = contributions.filter((row) => row.available);
-  const peak = Math.max(1, ...available.map((row) => row.observedActivity || 0));
+  const freshTotal = available.reduce((total, row) => total + Math.max(0, Number(row.freshPlusOutput) || 0), 0);
+  const scale = Number(visualCeiling) > 0 ? Number(visualCeiling) : null;
   return contributions.map((row) => {
     const name = row.agent || row.provider || row.model;
     if (!row.available) {
@@ -61,15 +62,37 @@ export function tokenBarRows(contributions = []) {
       const link = action?.href ? `<a href="${esc(action.href)}" target="_blank" rel="noreferrer">${esc(action.label || 'View usage')}</a>` : '';
       return `<div class="token-agent is-unavailable">${glyph(name)}<div><strong>${esc(name)}</strong><small>${esc(row.reason || 'Local token telemetry unavailable')}</small></div><b>${link || 'Local token telemetry unavailable'}</b></div>`;
     }
-    const width = Math.max(3, ((row.observedActivity || 0) / peak) * 100);
+    const fresh = Math.max(0, Number(row.freshPlusOutput) || 0);
+    // A Today row shares the learned global daily scale. Wider report ranges
+    // show Fresh + Output share instead of pretending a seven-day total is a
+    // one-day intensity bucket.
+    const width = scale ? Math.min(100, (fresh / scale) * 100) : freshTotal ? Math.min(100, (fresh / freshTotal) * 100) : 0;
     const share = Math.round((row.share || 0) * 100);
     const estimated = row.evidence === 'estimated' || row.evidence === 'mixed';
     const badge = estimated ? '<em class="token-estimated">Estimated</em>' : '';
-    return `<div class="token-agent">${glyph(name)}<div><strong>${esc(name)} ${badge}</strong><span class="token-track" aria-hidden="true"><i style="width:${width}%"></i></span></div><b>${short(row.observedActivity, row.evidence)} · ${share}%</b></div>`;
+    return `<div class="token-agent">${glyph(name)}<div><strong>${esc(name)} ${badge}</strong><span class="token-track" title="Fresh + Output intensity: ${esc(short(fresh, row.evidence))}" aria-hidden="true"><i style="width:${width}%"></i></span></div><b>${short(row.observedActivity, row.evidence)} · ${share}%</b></div>`;
   }).join('');
 }
 
-function explainMarkup(explain = {}, report = {}) {
+function scaleMarkup(scale = {}) {
+  if (!scale?.bucket) return '';
+  const current = scale.current || {};
+  const recent = scale.recent || {};
+  const record = scale.record || null;
+  const currentRatio = Math.min(100, Math.max(0, Number(current.ratio || 0) * 100));
+  const recordRatio = record ? Math.min(100, Math.max(0, (Number(record.value || 0) / Math.max(1, Number(record.previousCeiling || 0))) * 100)) : 0;
+  const currentValue = short(current.value || 0, current.evidence);
+  const p95 = recent.p95 == null ? 'Learning from completed days' : `${short(recent.p95)} / day`;
+  const lifetime = scale.lifetimeHigh?.value ? `${short(scale.lifetimeHigh.value, scale.lifetimeHigh.evidence)} / day` : 'No completed high yet';
+  return `<section class="token-intensity" data-token-intensity title="Meter scale adapts to recent comparable local-day Fresh + Output windows. It does not change token totals.">
+    <div class="token-intensity-head"><span class="kicker">ACTIVITY INTENSITY · FRESH + OUTPUT</span><b>${currentValue} / day</b></div>
+    <span class="token-intensity-track" aria-label="Current activity intensity"><i style="width:${currentRatio}%"></i></span>
+    <div class="token-intensity-meta"><span>Recent heavy range ${p95}</span><span>Lifetime high ${lifetime}</span></div>
+    ${record ? `<div class="token-record" data-token-record><span>New activity high</span><b>${short(record.value, record.evidence)} / day</b><i aria-hidden="true" style="width:${recordRatio}%"></i></div>` : ''}
+  </section>`;
+}
+
+function explainMarkup(explain = {}, report = {}, scale = null) {
   if (!explain) return '';
   const range = explain.range || {};
   const categories = Object.entries(CATEGORY_LABELS).map(([id, label]) => {
@@ -98,6 +121,7 @@ function explainMarkup(explain = {}, report = {}) {
       <div><dt>Source events</dt><dd>${fmt(explain.eventCount || 0)}</dd></div>
       <div><dt>Sessions</dt><dd>${fmt(explain.sessionCount || 0)}</dd></div>
     </dl>
+    ${scale?.bucket ? `<h5>Meter scale</h5><p>Fresh + Output per ${esc(scale.bucket.label)}. Recent P95: ${scale.recent?.p95 == null ? 'learning from completed days' : `${short(scale.recent.p95)} / day`}; lifetime high: ${scale.lifetimeHigh?.value ? `${short(scale.lifetimeHigh.value, scale.lifetimeHigh.evidence)} / day` : 'not observed yet'}. This display scale does not change totals.</p>` : ''}
     <h5>Categories</h5><ul>${categories}</ul>
     <h5>Agents / runtimes</h5><ul>${agents}</ul>
     <h5>Providers</h5><ul>${providers}</ul>
@@ -111,7 +135,7 @@ function tokenSum(tokens = {}) {
   return Object.values(tokens).reduce((sum, value) => sum + (Number(value) || 0), 0);
 }
 
-export function tokenModule(report = {}, { selected = 'today', yesterday = null, expanded = false, explainOpen = false } = {}) {
+export function tokenModule(report = {}, { selected = 'today', yesterday = null, expanded = false, explainOpen = false, visualScale = null } = {}) {
   const rangeLabel = report.label || 'Selected period';
   const comparison = selected === 'today' && yesterday ? `<div class="token-yesterday"><span>Yesterday</span><strong>${short(yesterday.observedActivity || 0, yesterday.evidence)}</strong></div>` : '';
   const categories = Object.entries(CATEGORY_LABELS).map(([id, label]) => {
@@ -131,7 +155,8 @@ export function tokenModule(report = {}, { selected = 'today', yesterday = null,
       <strong>${short(report.observedActivity || 0, report.evidence)}</strong>
       <small>observed token activity${report.evidence === 'mixed' ? ` · includes ${short(report.estimatedObservedActivity || 0, 'estimated')} estimated` : report.evidence === 'estimated' ? ' · estimated' : ''}</small>
     </button>
-    <div class="token-agents">${tokenBarRows(report.byAgent || [])}</div>
+    ${selected === 'today' ? scaleMarkup(visualScale) : ''}
+    <div class="token-agents">${tokenBarRows(report.byAgent || [], { visualCeiling: selected === 'today' ? visualScale?.recent?.visualCeiling : null })}</div>
     ${comparison}
     <div class="token-periods">${TOKEN_PERIOD_BUTTONS.map(([id, label]) => `<button data-token-period="${id}" class="${id === selected ? 'selected' : ''}" aria-pressed="${id === selected}">${esc(label)}</button>`).join('')}</div>
     <div class="token-actions"><button class="text-action" data-token-explain="1" aria-expanded="${explainOpen}">Explain this number</button></div>
@@ -141,7 +166,7 @@ export function tokenModule(report = {}, { selected = 'today', yesterday = null,
       <h4>By model</h4>
       ${models}
     </div>
-    ${explainOpen ? explainMarkup(report.explain, report) : ''}
+    ${explainOpen ? explainMarkup(report.explain, report, visualScale) : ''}
   </section>`;
 }
 

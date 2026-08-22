@@ -88,6 +88,8 @@ The dashboard never shows invented Claude/Cursor subscription quota, subscriptio
 | Observed token activity | Sum of observed categories, including cache |
 | Fresh + Output | Fresh input plus output only |
 
+The Live Feed’s Token Activity intensity meter is an adaptive local display: it uses comparable completed local-day **Fresh + Output** history to make quiet, normal, heavy, and record activity visually distinct. It does not alter token totals, evidence labels, cache visibility, billing, or subscription usage.
+
 Cursor **local token telemetry** may be exact (context meter / rare non-zero bubble counts), estimated (documented character fallback when current Cursor builds store `{0,0}`), or **unavailable**. Cursor itself still shows usage in the Cursor account dashboard. A zero never means “this provider used nothing” when the source cannot expose tokens. Official Usage CSV import is a documented future option, not required now.
 
 ## Privacy

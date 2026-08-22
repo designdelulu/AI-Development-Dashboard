@@ -7,6 +7,7 @@ import { cursorStorageRoot } from './live-files.js';
 import { agentTokenAvailability, sessionIdentity } from './identity.js';
 import { emptyTokens as tokenShape, tokenActivity as observedTokenActivity } from './core-tokens.js';
 import { localDateKey, tokenReports } from './tokens.js';
+import { buildTokenVisualScale } from './token-visual-scale.js';
 import { forEachJsonlRecord, looksLikeUsageLine } from './jsonl.js';
 import { aggregateTokenDays, dedupeUsageEvents, extractUsageEvent, normalizeUsage as readUsage, tokensFromDays } from './usage-events.js';
 import { claudePlanCapacityCapability } from './claude-capacity.js';
@@ -26,7 +27,7 @@ import { buildEfficiencyFoundation, structuralEventsFromRecord } from './efficie
 
 export const CONFIDENCE = { confirmed: 'Confirmed', strong: 'Strongly inferred', weak: 'Weakly inferred', unknown: 'Unknown' };
 export const METRIC_VERSION = '3.0';
-export const SCHEMA_VERSION = 12;
+export const SCHEMA_VERSION = 13;
 const home = process.env.HOME;
 const hash = (v) => crypto.createHash('sha256').update(String(v)).digest('hex').slice(0, 16);
 const stat = (p) => { try { return fs.statSync(p); } catch { return null; } };
@@ -246,9 +247,10 @@ export function derive(index) {
   const monitorEvents = index.sessions.filter((session) => session.timestamp && now - new Date(session.timestamp).getTime() <= 5 * 60 * 1000).map((session) => ({ timestamp: session.timestamp, agent: session.agent, tools: session.tools || 0 }));
   const cursorInfo = agentTokenAvailability('Cursor', diagnostics), unavailableAgents = cursorInfo.available ? {} : { Cursor: cursorInfo.reason };
   const tokenActivityIndex = tokenReports(index.sessions, new Date(now), { knownAgents: ['Cursor'], unavailableAgents, diagnostics });
+  const tokenVisualScale = buildTokenVisualScale(tokenActivityIndex.calendar, index.tokenVisualScale || null, new Date(now));
   const foundation = buildEfficiencyFoundation({ sessions: index.sessions, capabilityUsageEvents: capEvents });
   const runtimePresentation = runtimeCatalog(index.adapterManifests || [], index.sourceStates || {}, index.sessions);
-  const result = { ...index, schemaVersion: index.schemaVersion || SCHEMA_VERSION, rawCapabilities, repositories, projects, capabilities, capabilityUsageEvents: capEvents, harnessRuns: index.harnessRuns || [], efficiency: { ...efficiency(index.sessions), foundation }, tokenCalendar: tokenActivityIndex.calendar, tokenReports: tokenActivityIndex.reports, runtimeCatalog: runtimePresentation, summary: { ...total, activeProjects: projects.filter((project) => project.sessionCount || project.git.lastCommitAt).length, totalObservedTokenActivity: tokenActivity(total.tokens), agents: [...new Set(index.sessions.map((session) => session.agent))], hosts: [...new Set(index.sessions.map((session) => session.host || session.agent))], providers: [...new Set(index.sessions.map((session) => session.provider).filter(Boolean))], models: [...new Set(index.sessions.map((session) => session.model).filter(Boolean))], capabilityUses: capEvents.length, lastScanAt: new Date().toISOString(), diagnostics, activity, monitorEvents } };
+  const result = { ...index, schemaVersion: Math.max(index.schemaVersion || 0, SCHEMA_VERSION), rawCapabilities, repositories, projects, capabilities, capabilityUsageEvents: capEvents, harnessRuns: index.harnessRuns || [], efficiency: { ...efficiency(index.sessions), foundation }, tokenCalendar: tokenActivityIndex.calendar, tokenReports: tokenActivityIndex.reports, tokenVisualScale, runtimeCatalog: runtimePresentation, summary: { ...total, activeProjects: projects.filter((project) => project.sessionCount || project.git.lastCommitAt).length, totalObservedTokenActivity: tokenActivity(total.tokens), agents: [...new Set(index.sessions.map((session) => session.agent))], hosts: [...new Set(index.sessions.map((session) => session.host || session.agent))], providers: [...new Set(index.sessions.map((session) => session.provider).filter(Boolean))], models: [...new Set(index.sessions.map((session) => session.model).filter(Boolean))], capabilityUses: capEvents.length, lastScanAt: new Date().toISOString(), diagnostics, activity, monitorEvents } };
   return { ...result, maintenance: maintenanceGroups(capabilities), achievements: achievementsFor(result) };
 }
 export function defaultAdapterRegistry() {
@@ -286,6 +288,6 @@ export function scan(sources, previous=null, { registry = defaultAdapterRegistry
   if (antigravityState) sourceStates.Antigravity=antigravityState;
   if (openRouterState) sourceStates.OpenRouter=openRouterState;
   const adapterHealth=discoveries.map((row)=>({ id:row.id, adapterVersion:row.manifest.adapterVersion, capabilities:row.manifest.capabilities, state:row.error?'error':'available', error:row.error||null }));
-  return derive({schemaVersion:SCHEMA_VERSION,metricVersion:METRIC_VERSION,sources,repositories,sessions,rawCapabilities,capabilityUsageEvents:newEvents,harnessRuns:[],editorHosts:permissions.localRead?[discoverVsCodeAI(homedir)]:[],sourceStates,adapterHealth,adapterManifests:registry.manifests(),observedIdentities:observedIdentityRegistry(sessions,previous?.observedIdentities||[],{now}),permissions,errors:historical.filter((row)=>row.error).map((row)=>row.error),diagnostics:{...claude.diagnostics,...codex.diagnostics,...cursor.diagnostics,...cursorTokens.diagnostics,durationMs:Date.now()-began}});
+  return derive({schemaVersion:SCHEMA_VERSION,metricVersion:METRIC_VERSION,sources,repositories,sessions,rawCapabilities,capabilityUsageEvents:newEvents,harnessRuns:[],editorHosts:permissions.localRead?[discoverVsCodeAI(homedir)]:[],sourceStates,adapterHealth,adapterManifests:registry.manifests(),observedIdentities:observedIdentityRegistry(sessions,previous?.observedIdentities||[],{now}),tokenVisualScale:previous?.tokenVisualScale||null,permissions,errors:historical.filter((row)=>row.error).map((row)=>row.error),diagnostics:{...claude.diagnostics,...codex.diagnostics,...cursor.diagnostics,...cursorTokens.diagnostics,durationMs:Date.now()-began}});
 }
 export function defaultSources(options={}){const settings=options.settings||{};const roots=resolveProjectRoots({env:process.env,dataDir:options.dataDir,settings,homedir:home});return {projectsRoot:roots[0],projectsRoots:roots,claudeRoot:path.join(home,'.claude','projects'),codexRoot:path.join(home,'.codex','sessions'),cursorRoot:path.join(home,'.cursor','projects'),cursorStorageRoot:cursorStorageRoot(home),antigravityRoot:path.join(home,'.gemini','antigravity'),antigravityCliRoot:path.join(home,'.gemini','antigravity-cli'),homeDir:home,permissions:normalizePermissions(settings.permissions),connectedServices:settings.connectedServices||{}};}

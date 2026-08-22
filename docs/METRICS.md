@@ -20,6 +20,14 @@ Token evidence is explicit: **Exact** (provider/local numeric fields), **Estimat
 
 Every token card inherits the selected range. Fresh + Output is labelled with that range (for example `Fresh + Output · Today`). Observed token activity includes cache reads/writes and is not billed usage. **Explain this number** shows range, timezone, exact vs estimated totals, category/agent/provider/model breakdown, source event counts, and contributing sessions without prompt bodies.
 
+### Adaptive Token Activity intensity
+
+The Live Feed intensity meter is a **visualization aid**, not a token metric or quota meter. It uses **Fresh + Output** so cache/context processing cannot make ordinary new work look artificially maxed out. The normalized history currently retains comparable **one local calendar-day** usage buckets, so the meter compares the current local day with completed local calendar days; it does not pretend a selected 7-day/month report is a same-size live bucket.
+
+The meter learns from the 30 most recent completed observed day buckets. After seven samples, its recent-heavy reference is the nearest-rank P95 of those Fresh + Output values. Its visual ceiling is `max(100,000, ceil(recent P95 × 1.25))`; before seven samples it uses the same 1.25 headroom over the largest completed sample, with the 100,000-token floor. The lifetime high is stored locally from completed valid buckets and shown separately, so an old outlier cannot flatten the recent display. A newly closed current-day bucket is marked **New activity high** only when it exceeds the previous high; historical/backfilled buckets update history silently. Non-finite numeric input is ignored for scaling only.
+
+Exact, Estimated, and Mixed values participate consistently with the selected token report and keep their evidence label. The adaptive state stores only numeric day-scale metadata (bucket definition, recent summary, high-water mark, timestamp); it is recomputable from the normalized calendar and never requires transcript rereads, network calls, prompts, code, or cache/output bodies. Cache Read and Cache Creation remain visible in the existing detail and explanation surfaces. Restarting preserves the learned high-water state.
+
 Missing fields remain unavailable/zero in their category. A zero never means a provider used no tokens; it may mean the local source does not expose that field. Agent, host, provider and model contribution are reported separately when those fields exist.
 
 ## Attribution and efficiency

@@ -242,6 +242,7 @@ test('the browser entry module parses before it is served',()=>{
   for (const file of ['app.js','live-ui.js','resume-ui.js','agent-state.js','signal-field.js']) {
     assert.doesNotThrow(()=>execFileSync(process.execPath,['--check',path.join(process.cwd(),'public',file)],{stdio:'pipe'}));
   }
+  assert.match(fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8'),/function activateView\(next\)\{[\s\S]*?if\(data\)render\(\)/);
 });
 test('utility launchers stay usable as drawer toggles',()=>{
   const ui=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
@@ -408,4 +409,3 @@ test('token module markup stays honest about cache and unavailable agents',()=>{
   assert.doesNotMatch(html,/>Tokens Used</);
   assert.doesNotMatch(html,/>Unavailable</);
 });
-

@@ -4,6 +4,10 @@
 
 Every `ai-dashboard open` performs a local adapter discovery pass; known adapter roots are watched with a debounce and a five-minute local fallback detects supported tools installed while the service is already running. Discovery probes only allowlisted executable/application/root evidence and does not launch applications, parse prompt bodies, or make network requests. A model ID observed from a supported source keeps its raw ID and is normalized into the local identity registry with first/last-seen timestamps. A previously unseen model therefore appears in supported usage/identity surfaces without a dashboard release. This does not make a gateway, an installed application, or historical usage into Live Agent Activity.
 
+## Token Activity display scale
+
+Token Activity totals remain the normalized local calendar totals described in `METRICS.md`. The Live Feed’s adaptive intensity display separately stores a versioned local numeric scale: current-day Fresh + Output, a 30-completed-day recent P95 summary, and a completed-day lifetime high. It reads no raw transcript content and makes no network request. Cache reads/creation remain part of observed totals but do not set the primary intensity bar.
+
 ## OpenRouter connected telemetry (optional)
 
 Disabled by default. After explicit connection and manual sync, a supplied OpenRouter Management API key is used only for `GET /api/v1/analytics/meta`, `POST /api/v1/analytics/query`, and `GET /api/v1/credits`. Metadata is fetched first; only metrics/dimensions the response advertises are queried, queries use at most two dimensions, and `metadata.truncated` remains visible. The normalized cache stores aggregate values only (cost, request count, advertised token fields, models/providers, credits, period and sync time), and preserves OpenRouter-reported cost/token evidence as **Exact**.
