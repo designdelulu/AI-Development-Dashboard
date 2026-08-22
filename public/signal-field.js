@@ -30,10 +30,10 @@ export function boundedSignalEvents(events,now=Date.now(),{windowMs=60_000,limit
   return events.filter(event=>{const time=at(event.timestamp);return time!=null&&time>=cutoff&&time<=now}).slice(-limit);
 }
 
-export function signalBarSample(events,agent,sampleAt,index,{reducedMotion=false}={}){
+export function signalBarSample(events,agent,sampleAt,index,{reducedMotion=false,carrier=true}={}){
   const realEnergy=signalEnergy(events,agent,sampleAt),visualEnergy=Math.tanh(realEnergy*.52),agentPhase=brandPhase(agent);
-  const baseline=reducedMotion?.002:.003+.006*(.5+.5*Math.sin(sampleAt/620+agentPhase+index*.19));
-  const carrier=.34+.66*Math.abs(Math.sin(sampleAt/115+agentPhase*2+index*.71))*(.72+.28*Math.abs(Math.cos(index*.37+agentPhase)));
+  const baseline=carrier?(reducedMotion?.002:.003+.006*(.5+.5*Math.sin(sampleAt/620+agentPhase+index*.19))):0;
+  const carrierTexture=.34+.66*Math.abs(Math.sin(sampleAt/115+agentPhase*2+index*.71))*(.72+.28*Math.abs(Math.cos(index*.37+agentPhase)));
   const density=realEnergy>0?Math.min(1,.2+.8*visualEnergy):0,gate=.5+.5*Math.sin(index*1.77+agentPhase)<=density?1:.2;
-  return {realEnergy,visualEnergy,baselineOnly:realEnergy===0,amplitude:Math.min(1,baseline+visualEnergy*(.28+.72*carrier)*gate),opacity:realEnergy===0?.035:.28+.7*visualEnergy,density};
+  return {realEnergy,visualEnergy,baselineOnly:realEnergy===0,amplitude:Math.min(1,baseline+visualEnergy*(.28+.72*carrierTexture)*gate),opacity:realEnergy===0?(carrier?.035:0):.28+.7*visualEnergy,density};
 }

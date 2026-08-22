@@ -4,6 +4,12 @@
 
 Every `ai-dashboard open` performs a local adapter discovery pass; known adapter roots are watched with a debounce and a five-minute local fallback detects supported tools installed while the service is already running. Discovery probes only allowlisted executable/application/root evidence and does not launch applications, parse prompt bodies, or make network requests. A model ID observed from a supported source keeps its raw ID and is normalized into the local identity registry with first/last-seen timestamps. A previously unseen model therefore appears in supported usage/identity surfaces without a dashboard release. This does not make a gateway, an installed application, or historical usage into Live Agent Activity.
 
+## Runtime presence versus AI work
+
+Live Agent Activity keeps process/runtime presence separate from validated AI work. A cached local process check runs at most every five seconds and reads only `ps comm` executable paths, never command arguments, prompts, source code, terminal output, or tool input. An adapter may declare an executable-name/path hint when that is safe and reliable. That signal can render **Idle** (runtime present, no validated AI work), **Closed** (runtime absent), or **Presence Unknown**; it never emits an activity event, waveform pulse, token observation, Needs You state, or global live indicator.
+
+**Working** and **Recently Active** still require validated local work evidence. Cursor opening, Cursor project/window startup, generic process presence, Claude statusline helpers, quota refreshes, and dashboard-generated files remain non-work signals. A Closed lane remains visible for an observed live-capable runtime and says `Last AI activity … ago` rather than implying it has been closed for that interval.
+
 ## Token Activity display scale
 
 Token Activity totals remain the normalized local calendar totals described in `METRICS.md`. Contributor bars are selected-range **observed-token shares** and use the same denominator as their printed percentage; the adaptive intensity display is a separate surface. The Live Feed’s adaptive intensity display separately stores a versioned local numeric scale: current-day Fresh + Output, a 30-completed-day recent P95 summary, and a completed-day lifetime high. It reads no raw transcript content and makes no network request. Cache reads/creation remain part of observed totals but do not set the primary intensity bar.
@@ -25,6 +31,10 @@ Closed Antigravity discovery supports application/CLI/root presence only; retain
 Official Claude Code statusline JSON (v2.1.80+) may include `rate_limits.five_hour` and `rate_limits.seven_day` with `used_percentage` (0–100) and `resets_at` (Unix epoch seconds). Present for Claude.ai Pro/Max after the first API response. This installation was verified at Claude Code 2.1.198 against [statusline docs](https://code.claude.com/docs/en/statusline).
 
 An optional helper exists for a future explicit local-integration flow: it would copy `scripts/claude-capacity-capture.mjs` to `~/.claude/ai-dashboard/` and set `statusLine.command`, **chaining any existing statusline command**. Phase 1 scanning never invokes that helper or changes Claude settings. If explicitly enabled in a later reviewed flow, only rate-limit metadata is written to `~/.claude/usage_state.json`; remaining percent is `100 - used`. These dashboard-generated files are never live-activity sources.
+
+## Capacity actions
+
+Plan Capacity actions are registry metadata on a discovered capacity source, not Live Agent controls. A discovered Claude source exposes **View Claude Usage** (`https://claude.ai/settings/usage`) and a discovered Cursor source exposes **View Cursor Usage** (`https://cursor.com/dashboard`) even when their applications are Closed or capacity telemetry is unavailable. These are user-initiated normal-browser links only: the dashboard does not embed, authenticate to, scrape, or make background requests to either account page.
 
 ## Cursor tokens
 

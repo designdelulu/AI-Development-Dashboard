@@ -13,6 +13,7 @@ export function runtimeDescriptor(manifest = {}) {
     agent: runtime.agent || manifest.displayName || manifest.id || 'Unknown',
     host: runtime.host || runtime.agent || manifest.displayName || manifest.id || 'Unknown',
     harness: runtime.harness || null,
+    presence: runtime.presence ? { ...runtime.presence } : null,
     displayName: manifest.displayName || runtime.agent || manifest.id || 'Unknown',
     liveCapable: Boolean(manifest.kind !== 'connected-service' && liveCapability(manifest.capabilities?.live)),
     capabilities: { ...(manifest.capabilities || {}) }

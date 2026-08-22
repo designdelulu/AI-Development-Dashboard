@@ -5,6 +5,7 @@ import { claudeCapacityFromState, installedClaudeVersion, readUsageState } from 
 import { antigravityCapacity } from './antigravity.js';
 
 const unavailable=provider=>({provider,status:'Unavailable',message:'Plan usage unavailable through a supported local source.',source:null,observedAt:null,windows:[]});
+const sourceObserved = (state = {}) => state.installed?.state === 'detected' || state.history?.state === 'observed' || state.connection?.state === 'connected';
 const finite=value=>Number.isFinite(Number(value))?Number(value):null;
 const iso=value=>{const date=new Date(value);return Number.isNaN(date.getTime())?null:date.toISOString();};
 export function normalizeCapacity(provider, raw, observedAt=null) { if(!raw||provider!=='Codex')return unavailable(provider);const windows=[];for(const [key,value]of [['primary',raw.primary],['secondary',raw.secondary]]){if(!value)continue;const used=finite(value.used_percent),minutes=finite(value.window_minutes),reset=value.resets_at?iso(Number(value.resets_at)*1000):null;if(used==null)continue;windows.push({id:key,label:minutes>=10_000?'Weekly':'Current',usedPercent:Math.max(0,Math.min(100,used)),remainingPercent:Math.max(0,Math.min(100,100-used)),windowMinutes:minutes,resetAt:reset});}if(!windows.length)return unavailable(provider);return {provider,status:'Available',message:null,source:'Codex native session rate-limit metadata',observedAt:iso(observedAt),planType:typeof raw.plan_type==='string'?raw.plan_type:null,windows}; }
@@ -15,19 +16,28 @@ function latestCodexCapacity(root) { const files=collect(root).sort((a,b)=>b.mti
 // can add one descriptor without a dashboard-card branch or a model-specific
 // quota claim.
 export const capacitySourceRegistry = Object.freeze([
-  { id: 'Claude', collect: ({ homeDir }) => claudeCapacityFromState(readUsageState(homeDir), { version: installedClaudeVersion(homeDir) }) },
+  {
+    id: 'Claude',
+    action: { id: 'claude-usage', label: 'View Claude Usage', type: 'external-url', href: 'https://claude.ai/settings/usage', network: 'user-initiated-browser' },
+    collect: ({ homeDir }) => claudeCapacityFromState(readUsageState(homeDir), { version: installedClaudeVersion(homeDir) })
+  },
   { id: 'Codex', collect: ({ homeDir }) => { const codex = latestCodexCapacity(path.join(homeDir, '.codex', 'sessions')); return codex ? normalizeCapacity('Codex', codex.raw, codex.observedAt) : unavailable('Codex'); } },
-  { id: 'Cursor', collect: () => unavailable('Cursor') },
+  {
+    id: 'Cursor',
+    action: { id: 'cursor-usage', label: 'View Cursor Usage', type: 'external-url', href: 'https://cursor.com/dashboard', network: 'user-initiated-browser' },
+    collect: () => unavailable('Cursor')
+  },
   {
     id: 'Antigravity quota', optionalWhenUnsupported: true,
     collect: ({ homeDir, antigravityCliPresent }) => antigravityCapacity(homeDir, { cliPresent: antigravityCliPresent })
   }
 ]);
 
-export function readPlanCapacity(homeDir=os.homedir(), { antigravityCliPresent = null, sources = capacitySourceRegistry, now = () => new Date() } = {}) {
+export function readPlanCapacity(homeDir=os.homedir(), { antigravityCliPresent = null, sources = capacitySourceRegistry, sourceStates = {}, now = () => new Date() } = {}) {
   const cliPresent = antigravityCliPresent == null ? (() => { try { return fs.existsSync(path.join(homeDir, '.gemini', 'antigravity-cli', 'bin', 'agy')); } catch { return false; } })() : antigravityCliPresent;
   const providers = sources.flatMap((source) => {
-    const value = source.collect?.({ homeDir, antigravityCliPresent: cliPresent }) || unavailable(source.id);
+    const collected = source.collect?.({ homeDir, antigravityCliPresent: cliPresent }) || unavailable(source.id);
+    const value = source.action && sourceObserved(sourceStates[source.id]) ? { ...collected, action: { ...source.action } } : collected;
     if (source.optionalWhenUnsupported && value.status === 'Unavailable' && value.health === 'unsupported') return [];
     return [value];
   });

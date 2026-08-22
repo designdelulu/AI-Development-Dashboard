@@ -24,9 +24,9 @@ export function recentCapabilitiesForProject(index, projectId, limit = 4) {
   return ranked;
 }
 
-export function liveStatesFromEvents(events = [], agents = [], now = Date.now(), attentionSignals = {}, inProgressSignals = {}) {
+export function liveStatesFromEvents(events = [], agents = [], now = Date.now(), attentionSignals = {}, inProgressSignals = {}, presenceStates = {}) {
   const names = [...new Set([...(agents || []), ...events.map((event) => event.agent).filter(Boolean)])];
-  return Object.fromEntries(names.map((agent) => [agent, classifyAgentState(events, agent, now, { sourceKnown: true, attention: attentionSignals[agent] || null, inProgress: inProgressSignals[agent] || null })]));
+  return Object.fromEntries(names.map((agent) => [agent, classifyAgentState(events, agent, now, { sourceKnown: true, attention: attentionSignals[agent] || null, inProgress: inProgressSignals[agent] || null, presence: presenceStates[agent] || null })]));
 }
 
 export function rankResumeCandidates(projects = [], sessions = [], { liveStates = {}, now = Date.now(), limit = 5 } = {}) {
@@ -210,14 +210,14 @@ export function decorateResumeCards(cards, index, { capacity = null, availableAg
   });
 }
 
-export function buildOperator(index, events = [], capacity = null, { now = Date.now(), availableAgents = [], attentionSignals = {}, inProgressSignals = {} } = {}) {
+export function buildOperator(index, events = [], capacity = null, { now = Date.now(), availableAgents = [], attentionSignals = {}, inProgressSignals = {}, presenceStates = {} } = {}) {
   const liveAgents = [...new Set([
     ...availableAgents,
     ...(index.runtimeCatalog?.liveRuntimes || []).map((runtime) => runtime.agent).filter(Boolean),
     ...(index.summary?.agents || []),
     ...events.map((event) => event.agent).filter(Boolean)
   ])];
-  const liveStates = liveStatesFromEvents(events, liveAgents, now, attentionSignals, inProgressSignals);
+  const liveStates = liveStatesFromEvents(events, liveAgents, now, attentionSignals, inProgressSignals, presenceStates);
   const cards = decorateResumeCards(
     rankResumeCandidates(index.projects || [], index.sessions || [], { liveStates, now, limit: 5 }),
     index,
@@ -227,6 +227,7 @@ export function buildOperator(index, events = [], capacity = null, { now = Date.
     summary: operatorSummary({ projects: index.projects || [], sessions: index.sessions || [], liveStates, capacity, now }),
     resume: cards,
     liveStates,
+    presenceStates,
     needsYou: needsYou(index.projects || [], index.sessions || [], liveStates, now)
   };
 }

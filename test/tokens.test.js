@@ -164,6 +164,7 @@ test('live feed signal uses working, recent, then idle', () => {
   assert.equal(liveFeedSignalState({ Claude: { state: 'Working' }, Codex: { state: 'Idle' } }).mode, 'working');
   assert.equal(liveFeedSignalState({ Claude: { state: 'Recently Active' }, Codex: { state: 'Idle' } }).mode, 'recent');
   assert.equal(liveFeedSignalState({ Claude: { state: 'Idle' }, Codex: { state: 'Idle' } }).mode, 'idle');
+  assert.equal(liveFeedSignalState({ Cursor: { state: 'Closed' }, Claude: { state: 'Presence Unknown' } }).mode, 'idle');
 });
 
 test('plan capacity stays on account sources, not model lanes', () => {

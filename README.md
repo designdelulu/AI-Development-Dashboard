@@ -75,9 +75,9 @@ Installation, historical use, active work, and connected status remain separate.
 
 | Source | Installed / historical discovery | Live work | Tokens / models | Capacity / cost | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Claude Code | Supported | Validated JSONL growth | Supported where local fields exist | Optional documented local capacity status | Status/config touches never create live activity. |
+| Claude Code | Supported | Validated JSONL growth | Supported where local fields exist | Optional documented local capacity status | Official Usage action remains available when Claude Code is closed; status/config touches never create live activity. |
 | Codex CLI | Supported | Supported local session activity | Supported where local fields exist | Native local plan windows where exposed | Host and model remain separate. |
-| Cursor | Supported | Supported structural agent-tool/transcript growth | Exact, Estimated, Mixed, or Unavailable local evidence | Capacity unavailable | App startup, editor storage, and WAL housekeeping are not AI activity; no browser/account scraping. |
+| Cursor | Supported | Supported structural agent-tool/transcript growth | Exact, Estimated, Mixed, or Unavailable local evidence | Capacity unavailable locally | Official Usage action remains available when Cursor is closed. App startup, editor storage, and WAL housekeeping are not AI activity; no browser/account scraping. |
 | Antigravity | Closed-app/CLI/root detection | Unavailable without validated work evidence | Optional documented local status-line snapshot | Optional quota bucket snapshot | Presence is not history or live work. |
 | OpenRouter | Explicit Connected Service | Not a live agent | Provider-reported aggregate usage/models | Exact reported cost/credits where exposed | Disabled by default; project attribution stays Unknown without deterministic linkage. |
 | Git | Project discovery | — | Descriptive repository activity | — | Not a productivity score. |

@@ -47,7 +47,7 @@ test('adapter registry validates manifests, isolates failures, and denies disabl
 test('registry scan registers an unseen model and renders only declared live runtimes', () => {
   const home = temp('dynamic-runtime-home');
   const registry = new AdapterRegistry().register({
-    manifest: { id: 'fixture-runtime', contractVersion: ADAPTER_CONTRACT_VERSION, adapterVersion: 1, displayName: 'Fixture Runtime', kind: 'local', risk: 'local-read', runtime: { sourceKey: 'Fixture Runtime', agent: 'Fixture Runtime', host: 'Fixture Host' }, capabilities: { discover: 'local', history: 'exact', live: 'file-growth', models: 'exact', health: true } },
+    manifest: { id: 'fixture-runtime', contractVersion: ADAPTER_CONTRACT_VERSION, adapterVersion: 1, displayName: 'Fixture Runtime', kind: 'local', risk: 'local-read', runtime: { sourceKey: 'Fixture Runtime', agent: 'Fixture Runtime', host: 'Fixture Host', presence: { processNames: ['fixture-runtime'] } }, capabilities: { discover: 'local', history: 'exact', live: 'file-growth', models: 'exact', health: true } },
     discover() { return { installed: { state: 'detected' }, history: { state: 'none-yet' }, live: { state: 'unknown' }, connection: { state: 'not-applicable' } }; },
     historicalSessions() { return { sessions: [{ id: 'fixture:1', agent: 'Fixture Runtime', host: 'Fixture Host', provider: 'Provider X', model: 'provider-x/new-model-2099', modelRaw: 'provider-x/new-model-2099', modelId: 'provider-x/new-model-2099', harness: 'standalone', timestamp: '2026-08-22T00:00:00.000Z', tokens: { freshInput: 2, output: 1, cacheRead: 0, cacheCreation: 0, reasoning: 0, other: 0 }, tokenDays: {} }] }; }
   });
@@ -55,6 +55,7 @@ test('registry scan registers an unseen model and renders only declared live run
   assert.equal(value.observedIdentities[0].modelId, 'provider-x/new-model-2099');
   assert.equal(value.runtimeCatalog.liveRuntimes.length, 1);
   assert.equal(value.runtimeCatalog.liveRuntimes[0].host, 'Fixture Host');
+  assert.deepEqual(value.runtimeCatalog.liveRuntimes[0].presence, { processNames: ['fixture-runtime'] });
   assert.equal(value.sessions[0].adapterId, 'fixture-runtime');
 });
 

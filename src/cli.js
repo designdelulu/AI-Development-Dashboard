@@ -22,6 +22,7 @@ import { serviceStatus, startService, stopService } from './lifecycle/service.js
 import { createRediscoveryScheduler } from './rediscovery.js';
 import { installMode, updateGitCheckout } from './lifecycle/update.js';
 import { mergeObservedIdentities } from './runtime-registry.js';
+import { createPresenceSampler } from './runtime-presence.js';
 import { validateProjectRoots } from './onboarding.js';
 import { createOpenRouterService } from './openrouter/service.js';
 import { disableAntigravityCapture, enableAntigravityCapture, previewAntigravityCapture } from './antigravity.js';
@@ -61,18 +62,27 @@ function decorate(result) {
 }
 function currentSources() { return defaultSources({ dataDir, settings: loadSettings(dataDir) }); }
 function antigravityCliPresent() { return Boolean(index().sourceStates?.Antigravity?.installed?.evidence?.includes('binary')); }
+function readStoredIndex() {
+  try { return JSON.parse(fs.readFileSync(indexFile, 'utf8')); }
+  catch { return null; }
+}
+function writeIndex(value) {
+  const temporary = `${indexFile}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, JSON.stringify(value, null, 2));
+  fs.renameSync(temporary, indexFile);
+}
 function refresh(reason = 'manual') {
   if (refreshing) return liveIndex;
   refreshing = true;
   fs.mkdirSync(dataDir, { recursive: true });
-  const previous = liveIndex || (fs.existsSync(indexFile) ? JSON.parse(fs.readFileSync(indexFile, 'utf8')) : null);
+  const previous = liveIndex || readStoredIndex();
   const result = scan(currentSources(), previous);
   result.summary.refreshReason = reason;
   // Persist safe connected-service model identities alongside local identities.
   // The cached aggregate is already local; this makes first/last-seen model
   // history survive service restarts without correlating it to a local agent.
   result.observedIdentities = mergeObservedIdentities(result.observedIdentities || [], openRouter.state().cached?.models || []);
-  fs.writeFileSync(indexFile, JSON.stringify(result, null, 2));
+  writeIndex(result);
   liveIndex = decorate(result);
   refreshing = false;
   return liveIndex;
@@ -80,7 +90,8 @@ function refresh(reason = 'manual') {
 function index() {
   if (liveIndex) return liveIndex;
   if (!fs.existsSync(indexFile)) return refresh('startup');
-  const stored = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
+  const stored = readStoredIndex();
+  if (!stored) return refresh('index-recovery');
   const needsRescan = (stored.schemaVersion || 0) < SCHEMA_VERSION || (stored.sessions || []).some((session) => !session.provider || !session.host || (session.tokens && Object.values(session.tokens).some(Boolean) && !session.tokenDays));
   if (needsRescan) return refresh('schema-identity');
   return (liveIndex = decorate(stored));
@@ -249,10 +260,25 @@ function availableAgentNames() {
   const live = index().runtimeCatalog?.liveRuntimes?.map((runtime) => runtime.agent).filter(Boolean) || [];
   return [...new Set([...installed, ...live])];
 }
+function capacitySnapshot() {
+  return readPlanCapacity(undefined, { sourceStates: index().sourceStates || {} });
+}
+function presenceSampler() {
+  return createPresenceSampler({ runtimes: index().runtimeCatalog?.liveRuntimes || [] });
+}
+let samplePresence = null;
 function liveState() {
   const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity });
   const claudeInProgress = claudeToolTracker.signal();
-  snapshot.operator = buildOperator(index(), liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: claudeInProgress ? { Claude: claudeInProgress } : {} });
+  const current = index();
+  const runtimes = current.runtimeCatalog?.liveRuntimes || [];
+  if (!samplePresence || samplePresence.runtimes !== runtimes) {
+    samplePresence = presenceSampler();
+    samplePresence.runtimes = runtimes;
+  }
+  const presenceStates = samplePresence();
+  snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: claudeInProgress ? { Claude: claudeInProgress } : {}, presenceStates });
+  snapshot.presence = presenceStates;
   snapshot.agents = detectAgents();
   return snapshot;
 }
@@ -265,6 +291,7 @@ function hasSession(req, token) { return String(req.headers.cookie || '').split(
 export function serve({ port = 4177 } = {}) {
   const sources = currentSources();
   const rediscovery = createRediscoveryScheduler({ run: refresh });
+  latestCapacity = capacitySnapshot();
   rememberLiveFiles('Claude', sources.claudeRoot);
   rememberLiveFiles('Codex', sources.codexRoot);
   rememberLiveFiles('Cursor', sources.cursorRoot);
@@ -273,7 +300,7 @@ export function serve({ port = 4177 } = {}) {
   rediscovery.start();
   setInterval(() => { latestSystem = sampleSystem(); }, 2_000).unref();
   setInterval(pollLiveFiles, 1_500).unref();
-  setInterval(() => { latestCapacity = readPlanCapacity(); }, 60_000).unref();
+  setInterval(() => { latestCapacity = capacitySnapshot(); }, 60_000).unref();
   const publicDir = path.join(root, 'public');
   const controlToken = runtimeToken();
   const instanceId = runtimeToken();

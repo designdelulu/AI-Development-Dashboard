@@ -21,8 +21,17 @@ export function validateManifest(manifest = {}) {
   }
   if (manifest.runtime != null) {
     if (!manifest.runtime || typeof manifest.runtime !== 'object' || Array.isArray(manifest.runtime)) errors.push('Adapter runtime must be an object.');
-    else for (const field of ['sourceKey', 'agent', 'host', 'harness']) {
-      if (manifest.runtime[field] != null && (typeof manifest.runtime[field] !== 'string' || !manifest.runtime[field].trim())) errors.push(`Adapter runtime ${field} must be a non-empty string when provided.`);
+    else {
+      for (const field of ['sourceKey', 'agent', 'host', 'harness']) {
+        if (manifest.runtime[field] != null && (typeof manifest.runtime[field] !== 'string' || !manifest.runtime[field].trim())) errors.push(`Adapter runtime ${field} must be a non-empty string when provided.`);
+      }
+      if (manifest.runtime.presence != null) {
+        const presence = manifest.runtime.presence;
+        if (!presence || typeof presence !== 'object' || Array.isArray(presence)) errors.push('Adapter runtime presence must be an object.');
+        else for (const field of ['processNames', 'processPathSuffixes', 'processPathIncludes']) {
+          if (presence[field] != null && (!Array.isArray(presence[field]) || presence[field].some((value) => typeof value !== 'string' || !value.trim()))) errors.push(`Adapter runtime presence ${field} must be an array of non-empty strings when provided.`);
+        }
+      }
     }
   }
   return { valid: errors.length === 0, errors };
