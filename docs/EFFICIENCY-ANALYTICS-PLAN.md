@@ -294,7 +294,9 @@ No green/red “winner” until a controlled trial meets the threshold. Even the
 
 ## Implemented Phase 3A foundation
 
-Metric-definition version 3.0 implements the normalized private event layer and evidence-readiness workspace. Existing indexed token-day records backfill `UsageObservation` deterministically. Current Claude/Codex structured records may contribute tool-call, tool-error, recognized validator, numeric exit, rate-limit/provider-error, retry-count, and task-complete markers where those fields actually exist. Work Blocks use the documented `session-proxy` method; attempts are validation-scoped; no historical Task or accepted outcome is fabricated. User-confirmed outcomes are separate reversible local metadata. The first UI deliberately stops at descriptive rows and evidence readiness; Unit 20 comparative distributions and controlled reports remain unimplemented.
+Metric-definition version 3.0 implements the normalized private event layer and evidence-readiness workspace. Existing indexed token-day records backfill `UsageObservation` deterministically. Current Claude/Codex structured records may contribute tool-call, tool-error, recognized validator, numeric exit, rate-limit/provider-error, retry-count, and task-complete markers where those fields actually exist. Work Blocks use the documented `session-proxy` method; no historical Task or accepted outcome is fabricated. User-confirmed outcomes are separate reversible local metadata.
+
+Units 1–5 of Unit 20 now add a private Comparable observations surface, versioned comparison metadata, prospective post-instrumentation validation attempts/model segments, reason-coded cohort eligibility, and guarded Fresh + Output/exact-cost distributions. Historical session-proxy data remains descriptive and can correctly yield an empty comparison state. Unit 6 controlled-report import remains unimplemented.
 
 ## Unit 20 comparison decision record
 

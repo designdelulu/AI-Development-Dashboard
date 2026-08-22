@@ -103,7 +103,7 @@ The Local Core makes no network requests: scanning, the localhost server, and lo
 | OpenRouter (optional Connected Service) | Provider-reported aggregate analytics, credits, observed models/providers | Disabled by default; manual sync only; no project attribution without an explicit future mapping. |
 | Antigravity | Closed app/CLI/root detection; optional documented CLI status-line snapshots | App/root presence never claims history or live work. The optional local bridge captures current model/context and quota buckets only after explicit preview and confirmation. |
 
-The private **Efficiency** workspace is an evidence-readiness surface, not a productivity score. It shows structural observations by model and labels measured, inferred, and user-confirmed evidence separately. Work blocks are currently session proxies; the dashboard does not rank models or claim capability/model causation.
+The private **Efficiency** workspace is an evidence-readiness surface, not a productivity score. It shows structural observations by model and, when explicit private cycles meet the documented evidence gates, Comparable observations with median distributions, exclusions, and coverage. Work blocks are session proxies; historical blocks remain descriptive until prospective attempt/model-segment evidence exists. The dashboard does not rank models or claim capability/model causation.
 
 ## Limitations
 

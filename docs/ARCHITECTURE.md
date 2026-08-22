@@ -24,9 +24,9 @@ Snapshots retain host `Antigravity`, raw/normalized model, independently inferre
 
 ## Efficiency instrumentation foundation
 
-`src/efficiency.js` derives private structural observations from the normalized index during a normal scan; it does not reread transcripts on Efficiency-page navigation. `src/efficiency-store.js` keeps user-confirmed outcomes and user-created cycles separately from scanner output, so rescans cannot overwrite them. The API composes those records with an already-cached OpenRouter aggregate only; it never triggers a remote sync.
+`src/efficiency.js` derives private structural observations from the normalized index during a normal scan; it does not reread transcripts on Efficiency-page navigation. `src/efficiency-store.js` keeps user-confirmed outcomes, private cycle descriptors, and the prospective comparison tracking boundary separately from scanner output, so rescans cannot overwrite them. `src/efficiency-comparison.js` calculates deterministic cohort eligibility and distributions from those normalized records only. The API composes those records with an already-cached OpenRouter aggregate only; it never triggers a remote sync.
 
-The first boundary is deliberately conservative: one indexed session becomes one `session-proxy` Work Block. Structured validator/tool/provider fields can form measured events and validation-scoped attempts. Retry and possible-rework inference remains separately labelled; model switches require an explicit continuation relationship and are not inferred from timestamp proximity. Tasks and semantic completion remain Unknown without a harness ID or user confirmation.
+The first boundary is deliberately conservative: one indexed session becomes one `session-proxy` Work Block. Structured validator/tool/provider fields can form measured events. Prospective attempts require an explicit private cycle, named validation contract, and exact model segment; historical sessions stay descriptive. Retry and possible-rework inference remains separately labelled; model switches require an explicit continuation relationship and are not inferred from timestamp proximity. Tasks and semantic completion remain Unknown without a harness ID or user confirmation.
 
 ## Canonical identity and confidence
 

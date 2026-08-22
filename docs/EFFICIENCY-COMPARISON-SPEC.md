@@ -1,9 +1,9 @@
 # Efficiency Comparison Specification
 
-Status: frontier semantics frozen for Unit 20 implementation.  This document
-defines a private, metadata-only comparison feature.  It does not authorize a
-ranking, routing recommendation, experiment runner, adapter change, or a
-universal efficiency/productivity score.
+Status: Units 1–5 implemented. Unit 6 (controlled-report import) remains
+unimplemented. This document defines a private, metadata-only comparison
+feature. It does not authorize a ranking, routing recommendation, experiment
+runner, adapter change, or a universal efficiency/productivity score.
 
 ## Purpose and non-goals
 
