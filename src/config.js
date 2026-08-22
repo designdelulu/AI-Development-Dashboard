@@ -4,7 +4,8 @@ import os from 'node:os';
 import { normalizePermissions } from './permissions.js';
 import { onboardingState } from './onboarding.js';
 
-export const SETTINGS_VERSION = 3;
+export const SETTINGS_VERSION = 4;
+export const DEFAULT_ACCENT = '#FF2D78';
 
 export const CANDIDATE_PROJECT_ROOTS = ['Dropbox/Projects', 'Projects'];
 
@@ -38,6 +39,15 @@ export function connectedServicesState(value = {}) {
   };
 }
 
+export function normalizeAccent(value) {
+  const short = String(value || '').trim().match(/^#?([0-9a-f]{3})$/i);
+  const long = String(value || '').trim().match(/^#?([0-9a-f]{6})$/i);
+  const hex = short ? short[1].split('').map((part) => part + part).join('') : long?.[1];
+  return hex ? `#${hex.toUpperCase()}` : DEFAULT_ACCENT;
+}
+
+export function appearanceState(value = {}) { return { accent: normalizeAccent(value?.accent) }; }
+
 function withoutCredentialValues(value) {
   if (Array.isArray(value)) return value.map(withoutCredentialValues);
   if (!value || typeof value !== 'object') return value;
@@ -53,7 +63,8 @@ function normalized(value) {
     version: SETTINGS_VERSION,
     permissions: normalizePermissions(base.permissions),
     onboarding: onboardingState(base.onboarding),
-    connectedServices: connectedServicesState(base.connectedServices)
+    connectedServices: connectedServicesState(base.connectedServices),
+    appearance: appearanceState(base.appearance)
   };
 }
 
@@ -68,7 +79,7 @@ export function loadSettings(dataDir) {
 
 export function saveSettings(dataDir, patch = {}) {
   const current = loadSettings(dataDir);
-  const next = normalized({ ...current, ...patch, permissions: patch.permissions || current.permissions, onboarding: patch.onboarding || current.onboarding, connectedServices: patch.connectedServices || current.connectedServices });
+  const next = normalized({ ...current, ...patch, permissions: patch.permissions || current.permissions, onboarding: patch.onboarding || current.onboarding, connectedServices: patch.connectedServices || current.connectedServices, appearance: patch.appearance || current.appearance });
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(settingsFile(dataDir), JSON.stringify(next, null, 2));
   return next;

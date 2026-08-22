@@ -26,6 +26,7 @@ import { readPlanCapacity } from '../src/capacity.js';
 import { createRediscoveryScheduler } from '../src/rediscovery.js';
 import { installMode, inspectGitUpdate, updateGitCheckout } from '../src/lifecycle/update.js';
 import { mergeObservedIdentities, observedIdentityRegistry } from '../src/runtime-registry.js';
+import { ACCENT_PRESETS, DEFAULT_ACCENT, accentTheme, applyAccent, normalizeAccentColor, rememberAccent, storedAccent } from '../public/theme.js';
 
 const temp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
 
@@ -159,7 +160,7 @@ test('permission and onboarding migrations are independent and local-read denial
   const data = temp('settings'), home = temp('permission-home');
   fs.writeFileSync(path.join(data, 'settings.json'), JSON.stringify({ version: 1, permissions: { networkConnected: true } }));
   const migrated = loadSettings(data);
-  assert.equal(migrated.version, 3);
+  assert.equal(migrated.version, 4);
   assert.equal(migrated.permissions.networkConnected, true);
   assert.equal(migrated.permissions.localIntegrationWrite, false);
   assert.deepEqual(normalizePermissions({ updateCheckNetwork: true }), { ...DEFAULT_PERMISSIONS, updateCheckNetwork: true });
@@ -172,6 +173,27 @@ test('permission and onboarding migrations are independent and local-read denial
   const saved = saveSettings(data, { onboarding: { step: 'complete', completedAt: '2026-08-22T00:00:00.000Z' } });
   assert.equal(saved.onboarding.step, 'complete');
   assert.equal(onboardingState({ step: 'not-real' }).step, 'welcome');
+});
+
+test('appearance preference migrates locally, validates custom hex, and never changes semantic colors', () => {
+  const data = temp('appearance-settings');
+  fs.writeFileSync(path.join(data, 'settings.json'), JSON.stringify({ version: 3, appearance: { accent: '#3b82f6' } }));
+  assert.equal(loadSettings(data).appearance.accent, '#3B82F6');
+  assert.equal(saveSettings(data, { appearance: { accent: '#0f172a' } }).appearance.accent, '#0F172A');
+  assert.equal(saveSettings(data, { appearance: { accent: 'url(javascript:bad)' } }).appearance.accent, '#FF2D78');
+  assert.equal(normalizeAccentColor('#abc'), '#AABBCC');
+  assert.equal(normalizeAccentColor('#3b82f6'), '#3B82F6');
+  assert.equal(normalizeAccentColor('#12345z'), null);
+  assert.equal(ACCENT_PRESETS.length, 10);
+  assert.equal(ACCENT_PRESETS[0].value, DEFAULT_ACCENT);
+  const properties = new Map(), root = { style: { setProperty: (key, value) => properties.set(key, value) } };
+  const theme = applyAccent('#FEF3C7', root);
+  assert.equal(theme.accentForeground, '#141413');
+  assert.equal(properties.get('--accent'), '#FEF3C7');
+  assert.equal(properties.has('--state-error'), false);
+  const memory = new Map(), storage = { getItem: (key) => memory.get(key), setItem: (key, value) => memory.set(key, value) };
+  rememberAccent('#06b6d4', storage);
+  assert.equal(storedAccent(storage), '#06B6D4');
 });
 
 function response(status, value) { return { ok: status >= 200 && status < 300, status, headers: { get: () => null }, text: async () => JSON.stringify(value) }; }
@@ -509,4 +531,11 @@ test('repository CLI entrypoint and package bin expose lifecycle commands', () =
   assert.match(output, /"enabledByDefault": false/);
   const bin = fs.readFileSync(path.join(process.cwd(), 'bin', 'ai-dashboard.js'), 'utf8');
   assert.match(bin, /main\(\)/);
+});
+
+test('setup workflow checks Node, uses npm install/link, and does not alter shell profiles', () => {
+  const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const output = execFileSync(process.execPath, ['scripts/setup.mjs'], { cwd: root, env: { ...process.env, AI_DASHBOARD_SETUP_DRY_RUN: '1' }, encoding: 'utf8' });
+  assert.match(output, /npm install, npm link, and ai-dashboard status/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).scripts.setup, 'node scripts/setup.mjs');
 });

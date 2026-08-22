@@ -8,6 +8,7 @@
     "scan": "node src/cli.js scan",
     "start": "node src/cli.js serve",
     "dashboard": "node src/cli.js",
+    "setup": "node scripts/setup.mjs",
     "test": "node --test test/*.test.js"
   },
   "bin": {

@@ -8,6 +8,8 @@ OpenRouter Phase 2A accepts only a management credential supplied as `OPENROUTER
 
 Antigravity Phase 2B is local-only. Its optional status-line bridge cannot change host settings until the user reviews the exact target file/fields and confirms. It backs up an existing status-line configuration, forwards an existing custom status line rather than replacing it, and has a deterministic restore action. A captured quota bucket is never assigned to each model in that bucket.
 
+Appearance customization accepts only a normalized three- or six-digit hexadecimal accent value. It is stored locally, applied through CSS variables, cannot inject arbitrary CSS, makes no network request, and never changes semantic error, warning, or success colors.
+
 If you find a path that can expose private data through a public export, generated share card, localhost endpoint, or committed file, please report it privately to the repository owner. Do not include real secrets or raw transcripts in an issue.
 
 ## Sensitive material never accepted in contributions

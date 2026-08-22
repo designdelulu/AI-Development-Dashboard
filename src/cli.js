@@ -346,7 +346,9 @@ export function serve({ port = 4177 } = {}) {
         b.projectsRoots = checked.roots;
       }
       const saved = saveSettings(dataDir, roots ? { projectsRoots: b.projectsRoots, onboarding: b.onboarding } : b);
-      refresh('settings change');
+      // Appearance is a local browser preference; saving it must not trigger a
+      // scan, telemetry parse, or connected-service request.
+      if (roots || b.permissions || b.connectedServices) refresh('settings change');
       return json(res, { ...saved, projectsRoots: currentSources().projectsRoots });
     }
     if (url.pathname === '/api/export/stack') return json(res, shareableStack(index()));
@@ -440,6 +442,10 @@ export async function main(args = process.argv.slice(2)) {
   const script = path.resolve(process.argv[1]);
   const requestedPort = argValue(args, '--port', '4177');
   const port = Number.isInteger(Number(requestedPort)) && Number(requestedPort) >= 0 ? Number(requestedPort) : 4177;
+  if (['help', '--help', '-h'].includes(command)) {
+    console.log('AI Development Dashboard\n\nUsage: ai-dashboard <command>\n\nCommands:\n  open [--port N]  Start the owned local service and open the dashboard\n  status           Show owned service status\n  stop             Stop only the owned dashboard service\n  update           Safely update dashboard software (not AI tools/models)\n  doctor           Check local lifecycle health\n  scan             Run one local index scan\n  serve            Run the local server in the foreground');
+    return 0;
+  }
   if (command === 'scan') { const data = refresh(); console.log(`Indexed ${data.projects.length} projects, ${data.sessions.length} sessions, ${data.capabilities.length} capabilities.`); return 0; }
   if (command === 'serve') { serve({ port }); return 0; }
   if (command === 'start' || command === 'open') {

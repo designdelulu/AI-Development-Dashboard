@@ -18,6 +18,7 @@ Efficiency instrumentation stores only normalized IDs, timestamps, identity, tok
 - timestamps, compact counters, Git snapshot metadata
 - normalized token category totals when a local record exposes them, dated by usage-event timestamps
 - project pins, statuses, and private notes in `project-metadata.json`
+- local appearance preference (a validated accent hex value) in `settings.json` and browser local storage
 - frozen public-safe share snapshots when you export a recap
 
 ## What is never copied

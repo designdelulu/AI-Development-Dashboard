@@ -10,6 +10,7 @@ Thank you for considering a contribution. This project is currently a private lo
 - Keep analytics and sharing separate. Public-safe snapshots may only use explicitly allowlisted aggregate fields.
 - Add deterministic sanitized fixtures for parser, attribution, privacy, or metric changes.
 - Do not alter external agent configuration as part of dashboard behavior.
+- Use the shared accent variables for user-personalizable highlights; do not add a hardcoded Design Delulu pink where the selected accent should apply. Keep semantic success, warning, and error colors independent from the accent.
 
 ## Local workflow
 

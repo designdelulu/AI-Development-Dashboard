@@ -1,124 +1,134 @@
 # AI Development Dashboard
 
-A local-first, project-first operating layer for developers working across multiple AI coding agents.
+AI Development Dashboard is a **local-first, project-first operating and analytics layer** for developers who use more than one AI coding tool. It observes supported local and explicitly connected sources, then organizes activity around projects, agents, hosts, providers, models, capabilities, capacity, usage, and defensible efficiency evidence.
 
-It watches the Git projects on your machine and registered local/connected telemetry sources, then helps you resume work, see validated live activity, and keep an honest inventory of capabilities. Claude, Codex, Cursor, optional Antigravity telemetry, and optional OpenRouter usage are current sources; newly observed models register without a bundled model list. It can observe several agents and future harnesses without becoming an execution harness.
-
-> Private beta: the GitHub repository is private. This is not a hosted service.
+It is not an AI model, orchestration runtime, model router, generic token counter, or skill marketplace.
 
 ![Live Agent Activity — observed runtime signal field](docs/assets/ai-development-dashboard-live-activity.png)
 
+## Why use it?
+
+- Resume project work with local handoff context instead of starting in a provider dashboard.
+- See validated local runtime activity, plan capacity, and adaptive token activity without confusing installation with active work.
+- Keep models, providers, hosts, gateways, and accounts distinct—even when a new model appears through an existing supported tool.
+- Understand private efficiency evidence without a made-up “best model” score.
+- Keep local scanning offline; connect OpenRouter only if you explicitly want its account telemetry.
+
 ![Overview — pick up where you left off](docs/assets/ai-development-dashboard-overview.png)
 
-![Live Feed — plan capacity and observed token activity](docs/assets/ai-development-dashboard-live-feed.png)
+## Get running in a few minutes
 
-## Why it exists
-
-Modern development is often spread across more than one AI tool. Provider dashboards start with a vendor. Skill managers start with a folder. Token trackers start with usage. This dashboard starts with the **project**, then attaches agents, hosts, models, sessions, capabilities, and observable activity.
-
-It is not a token tracker, not a multi-agent harness, and not a skill installer. It remains the operating and analytics layer around projects.
-
-## Start
-
-Requires Node 20+ and Git. Works on macOS first; the server binds only to loopback.
+**Requirements:** Node.js 20+, Git, and macOS for the currently validated experience. The local server binds to loopback only. Windows and Linux have not yet received the same end-to-end validation.
 
 ```bash
 git clone <repository-url>
 cd AI-Development-Dashboard
-npm install
-npm start
+npm run setup
+ai-dashboard open
 ```
 
-Open `http://127.0.0.1:4177`. On first run, choose the local folder that holds your Git projects. Dropbox is not required.
+`npm run setup` checks Node, runs `npm install`, links the local `ai-dashboard` command for the current user, and checks lifecycle status. It does not use `sudo`, edit your shell profile, start a background service, or contact a provider.
 
-You can also set:
+When the dashboard opens, it starts a localhost service, opens the browser, scans configured project roots, detects supported local tools and retained evidence, registers observed providers/models, and updates source lifecycle state. No provider account or sign-up is required for Local Core.
 
-- `AI_DASHBOARD_PROJECTS_ROOT` — one path
-- `AI_DASHBOARD_PROJECTS_ROOTS` — colon- or comma-separated paths
-- `projectsRoots` in `.dashboard-data/settings.json`
+If `~/Dropbox/Projects` or `~/Projects` exists it is discovered; otherwise first run asks you to choose a project root. You can also set `AI_DASHBOARD_PROJECTS_ROOT` (one path) or `AI_DASHBOARD_PROJECTS_ROOTS` (colon- or comma-separated paths).
 
-If `~/Dropbox/Projects` or `~/Projects` already exists, it is detected. Otherwise the Overview asks for a folder, then scans.
+### Manual fallback
 
-`npm run scan` builds the index without serving. `npm test` runs the deterministic suite.
-
-The repository command is also package-ready:
+If setup cannot link the command, the equivalent manual path is:
 
 ```bash
-npm run dashboard -- open
-npm run dashboard -- status
-npm run dashboard -- stop
-npm run dashboard -- update
-npm run dashboard -- doctor
+npm install
+npm link
+ai-dashboard doctor
+ai-dashboard open
 ```
 
-`open` performs a local discovery pass. While it is running, the dashboard watches known adapter roots and runs a bounded five-minute fallback rediscovery, so supported tools installed later and newly observed models appear without a manual rescan or restart. Discovery is metadata-only and makes no network request.
+## Everyday commands
 
-`update` updates **AI Development Dashboard itself**. In the current linked Git-checkout install it refuses a dirty or diverged checkout, fetches only when you explicitly run the command, fast-forwards only, and restarts only the dashboard service it owns. It does not update AI tools, models, skills, plugins, or capabilities. Unsupported install modes explain which installer/package manager to use. `setup` opens the same local onboarding flow; `uninstall` and `autostart` remain safe previews. Start-at-login remains off.
+```bash
+ai-dashboard open      # start the owned local service and open the dashboard
+ai-dashboard status    # inspect the owned service
+ai-dashboard stop      # stop only the owned dashboard service
+ai-dashboard update    # update AI Development Dashboard itself
+```
 
-## What it does
+Run `ai-dashboard --help` for the complete lifecycle command list.
 
-### Overview
+`update` updates the **dashboard only**. It does not update Claude, Codex, Cursor, Antigravity, OpenRouter models, skills, plugins, or capabilities. For a linked Git checkout it refuses dirty or diverged work, fetches only when you explicitly request it, fast-forwards only, and restarts only the dashboard service it owns.
 
-Pick up where you left off: Today, Start Here, Needs You, Continue Working, and project handoff / open-in-agent actions.
+## Discovery that keeps up
 
-### Live Feed
+Every `ai-dashboard open` performs local discovery. While it is running, the dashboard watches known adapter roots and uses a bounded five-minute local fallback check. You do not normally need a rescan or restart.
 
-Ambient telemetry: live lanes for observed runtimes, current agent states, plan capacity, RAM/CPU/dashboard footprint, and token activity for the selected range (Today / Yesterday / 7 days / This month / Since tracking began).
-
-### Projects, Capabilities, Maintenance
-
-Canonical Git projects, a capability registry, and conservative maintenance signals. The dashboard does not install or remove skills.
-
-## Truth model
-
-**Measured** means direct filesystem/Git/transcript metadata. **Confirmed** session attribution uses a recorded working directory below a discovered Git root. **Strongly inferred** identifies Cursor project folders with an encoded project path. **Unknown** stays unknown.
-
-Agent, host, provider, model, and optional task role are separate fields. VS Code is an editor host, not an AI agent. Historical VS Code AI usage is unknown unless a trustworthy source exists.
-
-The dashboard never shows invented Claude/Cursor subscription quota, subscription billing, or productivity scores. Token values are observable usage fields, not charges.
-
-## Token language
-
-| Label | Meaning |
+| Situation | What happens |
 | --- | --- |
-| Fresh Input | New input tokens, cache excluded |
-| Output | Output tokens |
-| Cache Read | Previously cached context read |
-| Cache Creation | Context written to cache |
-| Observed token activity | Sum of observed categories, including cache |
-| Fresh + Output | Fresh input plus output only |
+| A new model appears through a supported tool | Its raw ID is preserved, normalized into the local identity registry, and appears in relevant usage surfaces automatically. |
+| A supported tool is installed after startup | Local rediscovery notices it and updates its Installed/Historical/Active/Connected state when its adapter supports that evidence. |
+| A completely unsupported tool or harness appears | It may need a future adapter before the dashboard can truthfully read sessions, tokens, or live work. No telemetry is guessed. |
 
-The Live Feed’s Token Activity intensity meter is an adaptive local display: it uses comparable completed local-day **Fresh + Output** history to make quiet, normal, heavy, and record activity visually distinct. It does not alter token totals, evidence labels, cache visibility, billing, or subscription usage.
+Installation, historical use, active work, and connected status remain separate. An installed or open application is never treated as live agent activity without validated work evidence.
 
-Cursor **local token telemetry** may be exact (context meter / rare non-zero bubble counts), estimated (documented character fallback when current Cursor builds store `{0,0}`), or **unavailable**. Cursor itself still shows usage in the Cursor account dashboard. A zero never means “this provider used nothing” when the source cannot expose tokens. Official Usage CSV import is a documented future option, not required now.
+![Live Feed — plan capacity and observed token activity](docs/assets/ai-development-dashboard-live-feed.png)
 
-## Privacy
+## Current support
 
-The Local Core makes no network requests: scanning, the localhost server, and local views remain offline. Connected Services are optional and make requests only after explicit connection to the selected provider. OpenRouter Phase 2A uses an `OPENROUTER_MANAGEMENT_KEY` supplied to the dashboard process; only aggregate analytics metadata/usage and credits are requested, never prompts, code, or transcripts. `.dashboard-data/` is local and gitignored; it stores an opaque credential reference, never a key. Share Story uses a separate allowlisted snapshot. Details: [PRIVACY.md](PRIVACY.md), [docs/SHARING-PRIVACY.md](docs/SHARING-PRIVACY.md).
+| Source | Installed / historical discovery | Live work | Tokens / models | Capacity / cost | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Claude Code | Supported | Validated JSONL growth | Supported where local fields exist | Optional documented local capacity status | Status/config touches never create live activity. |
+| Codex CLI | Supported | Supported local session activity | Supported where local fields exist | Native local plan windows where exposed | Host and model remain separate. |
+| Cursor | Supported | Supported WAL/agent-tools signal | Exact, Estimated, Mixed, or Unavailable local evidence | Capacity unavailable | No browser/account scraping. |
+| Antigravity | Closed-app/CLI/root detection | Unavailable without validated work evidence | Optional documented local status-line snapshot | Optional quota bucket snapshot | Presence is not history or live work. |
+| OpenRouter | Explicit Connected Service | Not a live agent | Provider-reported aggregate usage/models | Exact reported cost/credits where exposed | Disabled by default; project attribution stays Unknown without deterministic linkage. |
+| Git | Project discovery | — | Descriptive repository activity | — | Not a productivity score. |
+| VS Code | Extension/host discovery | — | — | — | Editor presence is not AI activity. |
 
-## Supported local sources
+### OpenRouter (optional)
 
-| Source | What is observed | Important limits |
-| --- | --- | --- |
-| Claude Code | Session metadata, supported token fields, structured skill attribution, live session-file activity | No supported local subscription percentage. A Kimi/DeepSeek model ID in those files is recorded as a different provider/model, not collapsed into “Claude tokens.” |
-| Codex CLI | Session metadata, working-directory attribution, native weekly remaining %, live session-file activity | Token categories depend on what local records expose. |
-| Cursor | Safe session presence, encoded project attribution, live WAL/`agent-tools` mtime, local token evidence when safe fields exist | Exact, Estimated, Mixed, or Unavailable depending on the local record. Cursor still tracks usage in its own account dashboard. Transcript files are often empty while an agent is working. |
-| Git | Repository identity and descriptive change activity | LOC and churn are descriptive, not productivity scores. |
-| VS Code | Installed AI-related extensions only | Not counted as AI activity. |
-| OpenRouter (optional Connected Service) | Provider-reported aggregate analytics, credits, observed models/providers | Disabled by default; manual sync only; no project attribution without an explicit future mapping. |
-| Antigravity | Closed app/CLI/root detection; optional documented CLI status-line snapshots | App/root presence never claims history or live work. The optional local bridge captures current model/context and quota buckets only after explicit preview and confirmation. |
+OpenRouter is a connected **gateway/account telemetry source**, not a Live Agent. After explicit connection and manual sync, the dashboard uses `OPENROUTER_MANAGEMENT_KEY` from the dashboard process to request allowed analytics metadata, aggregate usage, and credits. It stores an opaque credential reference, never the key. Provider-reported cost is Exact only at the level OpenRouter reports and can be deterministically correlated; timestamp proximity never assigns remote requests to a project or local agent.
 
-The private **Efficiency** workspace is an evidence-readiness surface, not a productivity score. It shows structural observations by model and, when explicit private cycles meet the documented evidence gates, Comparable observations with median distributions, exclusions, and coverage. Work blocks are session proxies; historical blocks remain descriptive until prospective attempt/model-segment evidence exists. The dashboard does not rank models or claim capability/model causation.
+### Antigravity (local foundation)
 
-## Limitations
+Antigravity can be found while closed from safe local installation evidence. Its optional documented status-line bridge requires a preview and explicit confirmation before changing its configuration. It can retain observed host, provider, model, workspace, context fields, and quota buckets when that source exposes them. Historical IDE telemetry is not fabricated, and an open app or refreshed quota does not create a live waveform.
 
-Not reliable yet: completed-task attribution, accepted changes, rework/reverts, Claude/Cursor plan remaining, third-party update availability, automated capability modification, and API cost as a stand-in for subscription savings. Cursor local token evidence is supported only when its safe local records expose it and is always labelled Exact, Estimated, Mixed, or Unavailable.
+## What the dashboard shows
 
-Orchestration of multiple workers is **not** this product’s runtime. The index can represent a harness run so a future adapter can feed telemetry. See [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md).
+- **Overview** — project-first resume context, handoff, and active work.
+- **Live Feed** — dynamic 0…N local runtime lanes, token activity, capacity sources, and secondary system telemetry.
+- **Projects** — canonical Git project inventory and private working memory.
+- **Capabilities & Maintenance** — evidence-based inventory and review signals; no automatic skill installation or mutation.
+- **Efficiency** — private work-block/model/validator evidence and comparison cycles only when observations form defensible cohorts. No universal productivity score, leaderboard, or historical task fabrication.
+- **Share Stats** — an allowlisted local share-story builder that excludes private project data, credentials, raw request IDs, and efficiency data.
 
-## Public-release status
+### Token Activity
 
-MIT licensed ([LICENSE](LICENSE)). The GitHub repository is still private; enabling the in-app Source code footer link is a settings flag after the repository is made public. See [PRIVACY.md](PRIVACY.md), [SECURITY.md](SECURITY.md), [CONTRIBUTING.md](CONTRIBUTING.md), and the checklist: [docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md).
+The Token Activity meter is an adaptive **visual aid**. Its intensity uses Fresh + Output, while Cache Read, Cache Creation, and Observed token activity remain visible separately. Comparable completed local-day windows establish a recent P95 heavy range and a retained lifetime high, so ordinary activity does not permanently look maxed out. It never changes underlying totals, evidence labels, billing, or subscription usage. See [metrics](docs/METRICS.md#adaptive-token-activity-intensity).
+
+### Appearance
+
+The dashboard keeps its dark Design Delulu visual system and hot-pink default accent. In **Maintenance → Appearance**, choose one of ten presets or enter a validated custom hex color. The setting previews immediately, persists locally, and does not affect semantic success, warning, or error colors. It is not included in Share Stats.
+
+## Privacy and security
+
+**Local Core** (scanning, the localhost UI, local rediscovery, and local views) makes no network requests. It derives metadata locally and does not retain prompt bodies, source code, transcript bodies, terminal/test output, tool arguments, browser credentials, or provider keys.
+
+**Connected Services** are disabled by default. They make explicitly authorized requests only to the selected provider. OpenRouter is the current connected integration; it never receives prompts, code, or transcripts from the dashboard.
+
+See [Privacy](PRIVACY.md), [Security](SECURITY.md), and [sharing privacy](docs/SHARING-PRIVACY.md).
+
+## Troubleshooting
+
+| Problem | What to do |
+| --- | --- |
+| `ai-dashboard: command not found` | Run `npm run setup`, or use the [manual fallback](#manual-fallback). |
+| Dashboard may already be running | Run `ai-dashboard status`. |
+| Stop the owned service | Run `ai-dashboard stop`. |
+| Update refused because the Git tree is dirty | Commit or stash your own changes, then retry. The updater never overwrites them. |
+| Port or lifecycle issue | Run `ai-dashboard status`, then `ai-dashboard doctor`. |
+
+## Documentation
+
+Start with the [documentation index](docs/README.md). It links the current architecture, telemetry, metrics, adapters/integrations, privacy, security, efficiency semantics, contributing guidance, and release checklist. Planning documents are retained as planning context, not a promise that every planned integration is implemented.
 
 ## Development
 
@@ -128,8 +138,4 @@ npm run scan
 npm start
 ```
 
-See [environment audit](docs/ENVIRONMENT-AUDIT.md), [architecture](docs/ARCHITECTURE.md), [metrics](docs/METRICS.md), [telemetry sources](docs/TELEMETRY.md), [model economics](docs/MODEL-ECONOMICS.md), [sharing privacy](docs/SHARING-PRIVACY.md), [future benchmarks](docs/FUTURE-BENCHMARKS.md) and [reuse decisions](docs/REUSE-DECISIONS.md).
-
-## License
-
-[MIT](LICENSE) © 2026 Eric Barker / Design Delulu
+The repository is currently private beta. It is MIT licensed ([LICENSE](LICENSE)); a public release still requires the [release checklist](docs/RELEASE-CHECKLIST.md).

@@ -2,6 +2,10 @@
 
 `src/core.js` owns adapters and normalization. `src/cli.js` is the tiny local HTTP/scan boundary. `public/` is a dependency-free UI.
 
+## Local appearance preference
+
+`settings.json` version 4 stores a single sanitized `appearance.accent` hexadecimal value. The browser applies it through shared `--accent` derived CSS variables and mirrors it in local storage early enough to avoid a visible default-color flash. Saving appearance does not refresh projects, reindex telemetry, restart the service, or call a network endpoint. Semantic state colors remain independent, and Share Stats keeps its existing fixed public card design.
+
 ```text
 filesystem/Git ─┐
 Claude records ─┼─ adapter registry ─→ normalized JSON index ─→ localhost UI
