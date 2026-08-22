@@ -16,6 +16,12 @@ OpenRouter is a registry-backed `connected-service` adapter, not a local scanner
 
 OpenRouter is the gateway/account source. Underlying provider and model identities remain separate, and agent/host are null unless independent local evidence identifies them. Aggregate remote history is never placed in Live Agent Activity. Projects remain Unknown unless an explicit deterministic mapping is introduced.
 
+## Antigravity local adapter
+
+Antigravity discovery reads only app/CLI/root presence while closed. Opaque IDE/conversation stores are not history. The optional CLI status-line bridge is an explicit `localIntegrationWrite`: preview → user confirmation → backup/preserve existing `statusLine` → install dashboard-owned helper → write allowlisted local snapshot. Restore returns the pre-dashboard settings and removes only dashboard-owned helper/state files.
+
+Snapshots retain host `Antigravity`, raw/normalized model, independently inferred underlying provider, local workspace/cwd, current context categories, CLI version, plan tier, and quota buckets. They do not create historical sessions or Live Agent Activity. Quota buckets are independent capacity sources and are never copied to individual models.
+
 ## Canonical identity and confidence
 
 Git root under the configured projects root is the canonical project identity. A session is **Confirmed** only when its recorded working directory resolves below that root. Cursor folders are matched from their encoded project path and are **Strongly inferred**; unmapped records remain Unknown/Weakly inferred rather than being silently assigned.

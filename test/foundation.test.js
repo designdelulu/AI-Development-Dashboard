@@ -18,6 +18,8 @@ import { scan } from '../src/core.js';
 import { createOpenRouterService } from '../src/openrouter/service.js';
 import { analyticsSchema, normalizeAnalytics } from '../src/openrouter/analytics.js';
 import { shareableStack } from '../src/sharing.js';
+import { antigravityCapacity, antigravityCaptureConfigured, antigravitySettingsPath, antigravityStatePath, disableAntigravityCapture, enableAntigravityCapture, normalizeAntigravityStatus, previewAntigravityCapture, readAntigravitySettings } from '../src/antigravity.js';
+import { readPlanCapacity } from '../src/capacity.js';
 
 const temp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
 
@@ -165,6 +167,92 @@ test('OpenRouter analytics schema ignores unsupported fields and preserves decla
   assert.equal(normalized.models[0].modelId, 'future-lab/new-model');
   assert.equal(normalized.models[0].evidence, 'Exact');
   assert.equal(normalized.truncated, true);
+});
+
+function antigravityStatus(overrides = {}) {
+  return {
+    schemaVersion: 1, capturedAt: '2026-08-22T12:00:00.000Z',
+    model: { id: 'claude-sonnet-4', displayName: 'Claude Sonnet 4' },
+    workspace: { projectDir: '/projects/alpha' }, version: '1.1.17', planTier: 'Pro',
+    contextWindow: { totalInputTokens: 1200, totalOutputTokens: 200, contextWindowSize: 200000, usedPercentage: 12, remainingPercentage: 88, currentUsage: { inputTokens: 800, outputTokens: 100, cacheReadInputTokens: 250, cacheCreationInputTokens: 50 } },
+    quota: { 'shared-weekly': { remainingFraction: .42, resetTime: '2026-08-24T12:00:00Z' }, 'flash-bucket': { remainingFraction: .9, resetTime: '2026-08-23T12:00:00Z' } },
+    ...overrides
+  };
+}
+
+test('Antigravity closed discovery distinguishes installed root from unsupported history and absent CLI', () => {
+  const home = temp('antigravity-closed');
+  fs.mkdirSync(path.join(home, '.gemini', 'antigravity'), { recursive: true });
+  const detected = discoverClosedTools({ homedir: home, env: { PATH: '' }, platform: 'linux' }).Antigravity;
+  assert.equal(detected.installed.state, 'detected');
+  assert.equal(detected.history.state, 'unsupported');
+  assert.equal(detected.live.state, 'unknown');
+  assert.equal(detected.installed.evidence.includes('binary'), false);
+  const absent = discoverClosedTools({ homedir: temp('antigravity-absent'), env: { PATH: '' }, platform: 'linux' }).Antigravity;
+  assert.equal(absent.installed.state, 'not-detected');
+});
+
+test('Antigravity status normalization retains host/provider/model and shared quota buckets separately', () => {
+  const normalized = normalizeAntigravityStatus(antigravityStatus());
+  assert.equal(normalized.host, 'Antigravity');
+  assert.equal(normalized.agent, null);
+  assert.equal(normalized.provider, 'Anthropic');
+  assert.equal(normalized.modelId, 'claude-sonnet-4');
+  assert.equal(normalized.context.evidence, 'Exact');
+  assert.equal(normalized.context.cacheRead, 250);
+  assert.equal(normalized.quotaBuckets.length, 2);
+  assert.equal(normalized.quotaBuckets[0].id, 'shared-weekly');
+  assert.equal(normalized.quotaBuckets[0].remainingPercent, 42);
+  assert.equal(normalized.quotaBuckets[0].resetAt, '2026-08-24T12:00:00.000Z');
+  assert.equal(normalized.live.state, 'unsupported');
+  assert.equal(normalized.projectPath, '/projects/alpha');
+  const gemini = normalizeAntigravityStatus(antigravityStatus({ model: { id: 'gemini-3.5-flash', displayName: 'Gemini 3.5 Flash' } }));
+  assert.equal(gemini.host, 'Antigravity');
+  assert.equal(gemini.provider, 'Google');
+  assert.equal(gemini.modelId, 'gemini-3.5-flash');
+  assert.equal(normalizeAntigravityStatus({ schemaVersion: 2 }), null);
+});
+
+test('Antigravity bridge preview, permission denial, preserve, restore, and stale capacity are deterministic', () => {
+  const home = temp('antigravity-bridge'), settingsFile = antigravitySettingsPath(home);
+  fs.mkdirSync(path.dirname(settingsFile), { recursive: true });
+  fs.writeFileSync(settingsFile, JSON.stringify({ statusLine: { type: 'command', command: 'existing-statusline --safe', padding: 2 }, unrelated: { keep: true } }));
+  const preview = previewAntigravityCapture(home, { cliPresent: true });
+  assert.equal(preview.hasExistingStatusline, true);
+  assert.equal(preview.excludedFields.includes('email'), true);
+  assert.throws(() => enableAntigravityCapture(home, { permission: false, confirmation: true, cliPresent: true }), { code: 'permission-denied' });
+  assert.throws(() => enableAntigravityCapture(home, { permission: true, confirmation: false, cliPresent: true }), { code: 'confirmation-required' });
+  const enabled = enableAntigravityCapture(home, { permission: true, confirmation: true, cliPresent: true });
+  assert.equal(enabled.changed, true);
+  const configured = readAntigravitySettings(home);
+  assert.equal(antigravityCaptureConfigured(configured, home), true);
+  assert.match(configured.statusLine.command, /existing-statusline --safe/);
+  assert.equal(configured.statusLine.stack_with_default, true);
+  assert.equal(configured.unrelated.keep, true);
+  fs.writeFileSync(antigravityStatePath(home), JSON.stringify(antigravityStatus({ capturedAt: '2026-08-01T00:00:00.000Z' })));
+  const stale = antigravityCapacity(home, { cliPresent: true, now: Date.parse('2026-08-22T12:00:00Z') });
+  assert.equal(stale.status, 'Stale');
+  assert.equal(stale.windows.length, 2);
+  fs.writeFileSync(antigravityStatePath(home), JSON.stringify(antigravityStatus({ quota: {} })));
+  assert.equal(antigravityCapacity(home, { cliPresent: true }).status, 'Unavailable');
+  const disabled = disableAntigravityCapture(home, { permission: true, confirmation: true });
+  assert.equal(disabled.restored, true);
+  assert.equal(readAntigravitySettings(home).statusLine.command, 'existing-statusline --safe');
+});
+
+test('Antigravity capacity dynamically joins registered providers without model quota cloning', () => {
+  const home = temp('antigravity-capacity');
+  enableAntigravityCapture(home, { permission: true, confirmation: true, cliPresent: true });
+  fs.writeFileSync(antigravityStatePath(home), JSON.stringify(antigravityStatus()));
+  const capacity = readPlanCapacity(home, { antigravityCliPresent: true });
+  const source = capacity.providers.find(item => item.provider === 'Antigravity quota');
+  assert.equal(source.status, 'Available');
+  assert.equal(source.windows.length, 2);
+  assert.equal(source.model, 'claude-sonnet-4');
+  assert.equal(source.windows.some(item => item.label === 'claude-sonnet-4'), false);
+  const script = fs.readFileSync(path.join(process.cwd(), 'scripts', 'antigravity-statusline-capture.mjs'), 'utf8');
+  assert.doesNotMatch(script, /transcript_path\)/);
+  assert.match(script, /never opens transcript_path/);
 });
 
 test('runtime records and autostart plans are per-user, opt-in foundations', () => {

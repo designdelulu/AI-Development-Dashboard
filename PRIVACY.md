@@ -6,6 +6,8 @@ AI Development Dashboard is local-first. The Local Core—the scanner, localhost
 
 Connected Services are disabled by default. When you explicitly connect OpenRouter and manually sync, the dashboard contacts only OpenRouter's analytics metadata/query and credits endpoints using a management key supplied to the dashboard process through `OPENROUTER_MANAGEMENT_KEY`. The key is not written to disk: settings retain only the opaque `env:OPENROUTER_MANAGEMENT_KEY` reference. The connector stores normalized aggregate model/provider, token, request, cost, and credit data with sync timestamps; it does not send or retain prompts, transcript bodies, source code, raw request IDs, account IDs, or API-key metadata. Disconnect disables future OpenRouter calls and forgets the reference while preserving already-normalized local aggregates.
 
+Antigravity is a local adapter, not a Connected Service. Closed discovery reads only application/CLI/root presence. Its optional CLI status-line capture is off by default and requires a preview plus explicit local confirmation before it changes the documented `~/.gemini/antigravity-cli/settings.json` `statusLine` command. The bridge writes only model identity, workspace/cwd for local attribution, current context token categories, quota bucket remaining/reset data, plan tier, and CLI version. It excludes email, transcript paths/content, VCS, sandbox, prompts, and account credentials; it never invokes `/usage` or `/quota`.
+
 ## What is stored locally
 
 - source file paths and fingerprints

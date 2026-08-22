@@ -21,6 +21,7 @@ import { autostartPlan } from './lifecycle/autostart.js';
 import { serviceStatus, startService, stopService } from './lifecycle/service.js';
 import { validateProjectRoots } from './onboarding.js';
 import { createOpenRouterService } from './openrouter/service.js';
+import { disableAntigravityCapture, enableAntigravityCapture, previewAntigravityCapture } from './antigravity.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const paths = lifecyclePaths({ root });
@@ -48,6 +49,7 @@ function decorate(result) {
   return { ...withMeta, handoffs, achievements: achievementsFor(withMeta, { handoffs }) };
 }
 function currentSources() { return defaultSources({ dataDir, settings: loadSettings(dataDir) }); }
+function antigravityCliPresent() { return Boolean(index().sourceStates?.Antigravity?.installed?.evidence?.includes('binary')); }
 function refresh(reason = 'manual') {
   if (refreshing) return liveIndex;
   refreshing = true;
@@ -263,6 +265,26 @@ export function serve({ port = 4177 } = {}) {
       catch (error) { return json(res, { ...openRouter.state(), error: error?.code || 'connector-error' }, 400); }
     }
     if (url.pathname === '/api/openrouter/disconnect' && req.method === 'POST') return json(res, openRouter.disconnect());
+    if (url.pathname === '/api/antigravity/capture/preview' && req.method === 'GET') return json(res, previewAntigravityCapture(undefined, { cliPresent: antigravityCliPresent() }));
+    if (url.pathname === '/api/antigravity/capture/enable' && req.method === 'POST') {
+      const b = await body(req), settings = loadSettings(dataDir);
+      try {
+        // Confirming this endpoint is the explicit user authorization. It turns
+        // on only the local-integration-write permission before touching the
+        // documented Antigravity statusLine configuration.
+        if (b.confirm !== true) return json(res, { error: 'confirmation-required', preview: previewAntigravityCapture(undefined, { cliPresent: antigravityCliPresent() }) }, 400);
+        if (!antigravityCliPresent()) return json(res, { error: 'cli-unavailable', preview: previewAntigravityCapture(undefined, { cliPresent: false }) }, 400);
+        const saved = saveSettings(dataDir, { permissions: { ...settings.permissions, localIntegrationWrite: true } });
+        const result = enableAntigravityCapture(undefined, { permission: saved.permissions.localIntegrationWrite, confirmation: b.confirm === true, cliPresent: antigravityCliPresent() });
+        refresh('antigravity capture enabled');
+        return json(res, { ...result, preview: previewAntigravityCapture(undefined, { cliPresent: true }) });
+      } catch (error) { return json(res, { error: error?.code || 'integration-error', preview: previewAntigravityCapture(undefined, { cliPresent: antigravityCliPresent() }) }, 400); }
+    }
+    if (url.pathname === '/api/antigravity/capture/disable' && req.method === 'POST') {
+      const b = await body(req), settings = loadSettings(dataDir);
+      try { const result = disableAntigravityCapture(undefined, { permission: settings.permissions.localIntegrationWrite, confirmation: b.confirm === true }); refresh('antigravity capture disabled'); return json(res, result); }
+      catch (error) { return json(res, { error: error?.code || 'integration-error' }, 400); }
+    }
     if (url.pathname === '/api/scan' && req.method === 'POST') return json(res, refresh('manual refresh'));
     if (url.pathname === '/api/status') { const x = index(); return json(res, { state: 'Live', lastUpdated: x.summary.lastScanAt, reason: x.summary.refreshReason || lastReason, diagnostics: x.summary.diagnostics }); }
     if (url.pathname === '/api/live-state') { res.setHeader('Cache-Control', 'no-store, max-age=0'); return json(res, liveState()); }

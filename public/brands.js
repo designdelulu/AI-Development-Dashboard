@@ -18,6 +18,7 @@ export const BRANDS = Object.freeze({
   Copilot: { id: 'Copilot', kind: 'agent', file: null, color: '#9B8CFF', letter: 'C' },
   'GitHub Copilot': { id: 'GitHub Copilot', kind: 'agent', file: null, color: '#9B8CFF', letter: 'C' },
   OpenCode: { id: 'OpenCode', kind: 'agent', file: null, color: '#F2C14E', letter: 'O' },
+  Antigravity: { id: 'Antigravity', kind: 'host', file: null, color: '#8AB4F8', letter: 'A' },
   Windsurf: { id: 'Windsurf', kind: 'host', file: null, color: '#6EE7B7', letter: 'W' }
 });
 

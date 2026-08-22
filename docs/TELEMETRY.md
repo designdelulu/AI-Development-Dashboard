@@ -6,6 +6,12 @@ Disabled by default. After explicit connection and manual sync, a supplied OpenR
 
 OpenRouter gateway/account is distinct from the observed underlying provider/model. Agent, host, harness, and project are Unknown unless separately proven. Timestamp proximity is never project attribution. Analytics history is usage telemetry, not live activity. Errors are surfaced as invalid credential, insufficient permission, rate limit, service unavailable, malformed response, offline, or stale cached data without blocking local scanning.
 
+## Antigravity CLI status-line capture (optional local integration)
+
+Closed Antigravity discovery supports application/CLI/root presence only; retained IDE/conversation storage is not parsed. When explicitly enabled, the documented `statusLine` JSON bridge captures model ID/display name, current workspace/cwd, current context token categories, quota bucket `remaining_fraction`/`reset_time`, plan tier, and CLI version. The snapshot is exact for those documented fields but is not an accumulated usage history and never feeds token-period totals.
+
+`quota` keys remain named buckets, separate from model identity. A bucket may cover multiple models, so its remaining percentage is rendered only as a capacity bucket. The snapshot becomes stale after 15 minutes. Agent state, an open app, a status update, and quota refresh do not constitute Live Agent Activity. The helper excludes `email`, `transcript_path`, transcripts, VCS, sandbox, and all unlisted fields; it never invokes interactive `/usage` or `/quota`.
+
 ## Claude plan capacity
 
 Official Claude Code statusline JSON (v2.1.80+) may include `rate_limits.five_hour` and `rate_limits.seven_day` with `used_percentage` (0–100) and `resets_at` (Unix epoch seconds). Present for Claude.ai Pro/Max after the first API response. This installation was verified at Claude Code 2.1.198 against [statusline docs](https://code.claude.com/docs/en/statusline).
