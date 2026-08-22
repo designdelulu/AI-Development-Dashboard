@@ -22,7 +22,7 @@ export async function serviceStatus(paths, script) {
   catch { return { state: 'unhealthy', runtime }; }
 }
 
-export async function startService({ paths, script, port = 4177, timeoutMs = 6000 }) {
+export async function startService({ paths, script, port = 4177, timeoutMs = 30_000 }) {
   const current = await serviceStatus(paths, script);
   if (current.state === 'running') return current;
   fs.mkdirSync(paths.dataDir, { recursive: true, mode: 0o700 });

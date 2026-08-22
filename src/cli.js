@@ -217,7 +217,6 @@ function json(res, value, status = 200) {
 }
 function hasSession(req, token) { return String(req.headers.cookie || '').split(';').some((value) => value.trim() === `ai_dashboard_session=${token}`); }
 export function serve({ port = 4177 } = {}) {
-  refresh('startup');
   const sources = currentSources();
   rememberLiveFiles('Claude', sources.claudeRoot);
   rememberLiveFiles('Codex', sources.codexRoot);
@@ -342,6 +341,10 @@ export function serve({ port = 4177 } = {}) {
     localOrigin = url;
     writeRuntime(paths.runtimeFile, { version: 1, pid: process.pid, script: path.resolve(process.argv[1]), startedAt: new Date().toISOString(), url, port: actualPort, instanceId, controlToken, dataDir });
     console.log(`AI Development Dashboard → ${url}`);
+    // Bind and become healthy before a potentially large first local scan. A
+    // cached index is served immediately; a clean install still scans on its
+    // first data request or this queued startup refresh.
+    setTimeout(() => refresh('startup'), 500).unref();
   });
   return server;
 }
