@@ -187,7 +187,7 @@ Comparable cohorts require:
 - project/language/context bands when these are known and materially imbalanced;
 - no Mixed/Estimated inclusion in an Exact-only claim.
 
-Observational matching is labeled **Adjusted observational comparison**, never an experiment. The UI should prefer filters and distributions over an opaque regression-adjusted score in the first release.
+Observational matching is labeled **Strongly matched observational comparison**, never an experiment. The first release exposes the matching dimensions rather than claiming regression adjustment, and prefers filters and distributions over an opaque score.
 
 ## Skill and capability efficiency
 
@@ -295,6 +295,16 @@ No green/red “winner” until a controlled trial meets the threshold. Even the
 ## Implemented Phase 3A foundation
 
 Metric-definition version 3.0 implements the normalized private event layer and evidence-readiness workspace. Existing indexed token-day records backfill `UsageObservation` deterministically. Current Claude/Codex structured records may contribute tool-call, tool-error, recognized validator, numeric exit, rate-limit/provider-error, retry-count, and task-complete markers where those fields actually exist. Work Blocks use the documented `session-proxy` method; attempts are validation-scoped; no historical Task or accepted outcome is fabricated. User-confirmed outcomes are separate reversible local metadata. The first UI deliberately stops at descriptive rows and evidence readiness; Unit 20 comparative distributions and controlled reports remain unimplemented.
+
+## Unit 20 comparison decision record
+
+The frontier semantic review is frozen in [EFFICIENCY-COMPARISON-SPEC.md](EFFICIENCY-COMPARISON-SPEC.md). Unit 20 must use Work Cycles rather than session-proxy Work Blocks as comparison units; keep validation evidence distinct from user/structured acceptance evidence; and classify cohorts as Controlled, Strongly matched, Loosely matched, or Unmatched. Only the first two may receive direct comparison surfaces.
+
+Direct model claims require an exact normalized model/execution path, compatible host/harness, explicit task/cycle boundary, compatible named validation contract, matching metric/evidence definition, and disclosed capability configuration. Cross-host observations are execution-path comparisons, not model-only comparisons. Mixed-model cycles are excluded until measured segment-to-attempt linkage exists. Exact provider cost is comparison-eligible only when deterministically linked to every included cycle/segment; aggregate OpenRouter cost remains descriptive.
+
+The existing threshold defaults are now exact UI gates: 1–2 units raw only; 3–4 median/range only; 5–9 limited side-by-side values; 10 eligible attempts plus 5 accepted outcomes per cohort for a strongly matched observational comparison; 20 eligible attempts for a prominent observational summary subject to the 50% project-concentration and 20% missingness gates. Controlled paired work is raw at 1–4 pairs, limited at 5–9, exploratory at 10–19, and receives the default controlled summary at 20 valid pairs. Error rates require 20 compatible denominator events; exact-cost metrics require 100% exact-cost coverage.
+
+At the review baseline, the 290 session-proxy Work Blocks, 258 timestamped UsageObservations, 217 structural events, and 7 confirmed CapabilityEvidence records remain descriptive. With zero safely reconstructed historical validation-command Attempts, no historical record is eligible for an outcome-based Unit 20 comparison. This is an intentional empty state, not a backfill target.
 
 ## Tests
 
