@@ -306,7 +306,7 @@ export function serve({ port = 4177 } = {}) {
       try {
         const b = await body(req), known = new Set((index().efficiency?.foundation?.workBlocks || []).map((item) => item.id));
         if (!Array.isArray(b.workBlockIds) || b.workBlockIds.some((id) => !known.has(id))) return json(res, { error: 'A selected work block was not found.' }, 400);
-        const current = loadEfficiencyMetadata(dataDir), created = createCycle(current, b.workBlockIds);
+        const current = loadEfficiencyMetadata(dataDir), created = createCycle(current, b.workBlockIds, { privateLabel: b.privateLabel, taskKey: b.taskKey, taskCategory: b.taskCategory, validationContract: b.validationContract, capabilityConfiguration: b.capabilityConfiguration, capabilityConfigurationKnown: b.capabilityConfigurationKnown === true });
         saveEfficiencyMetadata(dataDir, created.metadata); liveIndex = decorate(index());
         return json(res, { cycle: created.cycle, foundation: liveIndex.efficiency.foundation });
       } catch (error) { return json(res, { error: error.message }, 400); }

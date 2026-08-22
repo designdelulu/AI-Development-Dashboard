@@ -1,11 +1,12 @@
 import crypto from 'node:crypto';
 import { emptyTokens, addTokens, freshPlusOutput, inPeriod, periodBounds } from './tokens.js';
 import { tokenActivity } from './core-tokens.js';
+import { comparisonMetrics } from './efficiency-comparison.js';
 
 export const EFFICIENCY_METRIC_VERSION = '1.0';
 export const EFFICIENCY_EVIDENCE = Object.freeze({ measured: 'Measured', inferred: 'Inferred', userConfirmed: 'User-confirmed', unknown: 'Unknown' });
 export const OUTCOME_STATES = Object.freeze(['accepted', 'partially-accepted', 'rejected', 'reverted', 'abandoned', 'unknown']);
-export const STRUCTURAL_EVENT_TYPES = Object.freeze(['tool_call', 'tool_error', 'command_nonzero_exit', 'validation_attempted', 'validation_passed', 'validation_failed', 'provider_error', 'rate_limit', 'timeout', 'process_failure', 'task_complete_structured', 'retry_measured', 'retry_inferred', 'reverted_change', 'possible_rework']);
+export const STRUCTURAL_EVENT_TYPES = Object.freeze(['tool_call', 'tool_error', 'command_nonzero_exit', 'validation_attempted', 'validation_passed', 'validation_failed', 'validation_recheck', 'provider_error', 'rate_limit', 'timeout', 'process_failure', 'task_complete_structured', 'retry_measured', 'retry_inferred', 'reverted_change', 'possible_rework']);
 
 const hash = (value) => crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 20);
 const iso = (value) => { const date = new Date(value); return Number.isNaN(date.getTime()) ? null : date.toISOString(); };
@@ -19,11 +20,25 @@ const toolName = (row = {}) => {
   const value = row.name || row.tool_name || row.message?.name || row.message?.content?.name || row.payload?.name || row.payload?.tool_name;
   return typeof value === 'string' ? value.slice(0, 96) : null;
 };
-const event = ({ sessionId, timestamp, type, evidence = EFFICIENCY_EVIDENCE.measured, source, sequence = 0, metadata = {}, model = null }) => ({
+const event = ({ sessionId, timestamp, type, evidence = EFFICIENCY_EVIDENCE.measured, source, sequence = 0, metadata = {}, model = null, identity = null }) => ({
   id: `eff:${hash(`${source}:${sessionId || 'unknown'}:${timestamp || 'unknown'}:${type}:${sequence}`)}`,
   timestamp: iso(timestamp), sessionId: sessionId || null, workBlockId: null, attemptId: null,
-  type, outcome: null, evidence, source, model: model || null, metadata
+  type, outcome: null, evidence, source, model: model || null, identity, metadata
 });
+
+export function validationContractFor(validator) {
+  const values = {
+    'javascript-test': { targetId: 'javascript-test', kind: 'test', strength: 'V2' },
+    'javascript-test-runner': { targetId: 'javascript-test-runner', kind: 'test', strength: 'V2' },
+    'pytest': { targetId: 'pytest', kind: 'test', strength: 'V2' },
+    'cargo-test': { targetId: 'cargo-test', kind: 'test', strength: 'V2' },
+    'go-test': { targetId: 'go-test', kind: 'test', strength: 'V2' },
+    'build-validator': { targetId: 'build-validator', kind: 'build', strength: 'V1' },
+    'typecheck-validator': { targetId: 'typecheck-validator', kind: 'typecheck', strength: 'V1' },
+    'lint-validator': { targetId: 'lint-validator', kind: 'lint', strength: 'V0' }
+  };
+  return values[validator] ? { ...values[validator], requiredStatus: 'passed' } : null;
+}
 
 // Commands are inspected only in memory to assign a bounded validator class.
 // The command text itself is never returned, stored, or exported.
@@ -35,11 +50,13 @@ export function classifyValidationCommand(command) {
   if (/^cargo\s+test\b/i.test(value)) return 'cargo-test';
   if (/^go\s+test\b/i.test(value)) return 'go-test';
   if (/^(?:npx\s+)?(?:vitest|jest)\b/i.test(value)) return 'javascript-test-runner';
-  if (/^(?:npm\s+run\s+(?:lint|build|check)|cargo\s+check|go\s+vet)\b/i.test(value)) return 'known-validator';
+  if (/^(?:npm\s+run\s+build)\b/i.test(value)) return 'build-validator';
+  if (/^(?:npm\s+run\s+(?:check|typecheck)|cargo\s+check)\b/i.test(value)) return 'typecheck-validator';
+  if (/^(?:npm\s+run\s+lint|go\s+vet)\b/i.test(value)) return 'lint-validator';
   return null;
 }
 
-export function structuralEventsFromRecord(row = {}, { sessionId = null, source = 'local-jsonl', sequence = 0, model = null } = {}) {
+export function structuralEventsFromRecord(row = {}, { sessionId = null, source = 'local-jsonl', sequence = 0, model = null, identity = null } = {}) {
   const timestamp = iso(row.timestamp);
   if (!timestamp) return [];
   const p = row.payload || {}, out = [], type = String(row.type || p.type || p.event_type || '').toLowerCase();
@@ -50,23 +67,24 @@ export function structuralEventsFromRecord(row = {}, { sessionId = null, source 
   const content = Array.isArray(row.message?.content) ? row.message.content : [];
   const toolUses = content.filter((item) => item?.type === 'tool_use');
   const toolResults = content.filter((item) => item?.type === 'tool_result');
-  if (type.includes('tool_use') || type.includes('function_call') || type.includes('command_execution') || p.type === 'function_call') out.push(event({ sessionId, timestamp, type: 'tool_call', source, sequence, model, metadata: { toolName: tool } }));
-  for (const item of toolUses) out.push(event({ sessionId, timestamp, type: 'tool_call', source, sequence: `${sequence}:${item.id || item.name || 'tool'}`, model, metadata: { toolName: typeof item.name === 'string' ? item.name.slice(0, 96) : null } }));
-  if (type.includes('tool_result') && failed) out.push(event({ sessionId, timestamp, type: 'tool_error', source, sequence, model, metadata: { toolName: tool, exitCode } }));
-  for (const item of toolResults) if (item.is_error === true) out.push(event({ sessionId, timestamp, type: 'tool_error', source, sequence: `${sequence}:${item.tool_use_id || 'tool-result'}`, model, metadata: { toolName: null, exitCode: null } }));
+  if (type.includes('tool_use') || type.includes('function_call') || type.includes('command_execution') || p.type === 'function_call') out.push(event({ sessionId, timestamp, type: 'tool_call', source, sequence, model, identity, metadata: { toolName: tool, validator } }));
+  for (const item of toolUses) out.push(event({ sessionId, timestamp, type: 'tool_call', source, sequence: `${sequence}:${item.id || item.name || 'tool'}`, model, identity, metadata: { toolName: typeof item.name === 'string' ? item.name.slice(0, 96) : null, validator: null } }));
+  if (type.includes('tool_result') && failed) out.push(event({ sessionId, timestamp, type: 'tool_error', source, sequence, model, identity, metadata: { toolName: tool, exitCode } }));
+  for (const item of toolResults) if (item.is_error === true) out.push(event({ sessionId, timestamp, type: 'tool_error', source, sequence: `${sequence}:${item.tool_use_id || 'tool-result'}`, model, identity, metadata: { toolName: null, exitCode: null } }));
   if (validator) {
-    out.push(event({ sessionId, timestamp, type: 'validation_attempted', source, sequence, model, metadata: { validator } }));
-    if (exitCode === 0) out.push(event({ sessionId, timestamp, type: 'validation_passed', source, sequence, model, metadata: { validator, exitCode } }));
-    else if (failed) out.push(event({ sessionId, timestamp, type: 'validation_failed', source, sequence, model, metadata: { validator, exitCode } }));
-  } else if (exitCode != null && exitCode !== 0) out.push(event({ sessionId, timestamp, type: 'command_nonzero_exit', source, sequence, model, metadata: { exitCode } }));
-  if (/^git\s+(?:revert|restore)\b/i.test(command || '')) out.push(event({ sessionId, timestamp, type: 'reverted_change', source, sequence, model, metadata: { commandKind: 'git-revert-or-restore' } }));
+    const validationContract = validationContractFor(validator);
+    out.push(event({ sessionId, timestamp, type: 'validation_attempted', source, sequence, model, identity, metadata: { validator, validationContract } }));
+    if (exitCode === 0) out.push(event({ sessionId, timestamp, type: 'validation_passed', source, sequence, model, identity, metadata: { validator, validationContract, exitCode } }));
+    else if (failed) out.push(event({ sessionId, timestamp, type: 'validation_failed', source, sequence, model, identity, metadata: { validator, validationContract, exitCode } }));
+  } else if (exitCode != null && exitCode !== 0) out.push(event({ sessionId, timestamp, type: 'command_nonzero_exit', source, sequence, model, identity, metadata: { exitCode } }));
+  if (/^git\s+(?:revert|restore)\b/i.test(command || '')) out.push(event({ sessionId, timestamp, type: 'reverted_change', source, sequence, model, identity, metadata: { commandKind: 'git-revert-or-restore' } }));
   const errorCode = String(row.error_code || p.error_code || p.error?.code || '').toLowerCase();
-  if (errorCode.includes('rate')) out.push(event({ sessionId, timestamp, type: 'rate_limit', source, sequence, model, metadata: {} }));
-  else if (type === 'error' || errorCode) out.push(event({ sessionId, timestamp, type: 'provider_error', source, sequence, model, metadata: { errorCode: errorCode.slice(0, 80) || null } }));
-  if (type.includes('timeout')) out.push(event({ sessionId, timestamp, type: 'timeout', source, sequence, model, metadata: {} }));
-  if (type.includes('task_complete') || p.type === 'task_complete') out.push(event({ sessionId, timestamp, type: 'task_complete_structured', source, sequence, model, metadata: {} }));
+  if (errorCode.includes('rate')) out.push(event({ sessionId, timestamp, type: 'rate_limit', source, sequence, model, identity, metadata: {} }));
+  else if (type === 'error' || errorCode) out.push(event({ sessionId, timestamp, type: 'provider_error', source, sequence, model, identity, metadata: { errorCode: errorCode.slice(0, 80) || null } }));
+  if (type.includes('timeout')) out.push(event({ sessionId, timestamp, type: 'timeout', source, sequence, model, identity, metadata: {} }));
+  if (type.includes('task_complete') || p.type === 'task_complete') out.push(event({ sessionId, timestamp, type: 'task_complete_structured', source, sequence, model, identity, metadata: {} }));
   const retries = number(row.retry_count ?? row.retryCount ?? p.retry_count ?? p.retryCount);
-  if (retries != null && retries > 0) out.push(event({ sessionId, timestamp, type: 'retry_measured', source, sequence, model, metadata: { retryCount: retries } }));
+  if (retries != null && retries > 0) out.push(event({ sessionId, timestamp, type: 'retry_measured', source, sequence, model, identity, metadata: { retryCount: retries } }));
   return out;
 }
 
@@ -132,23 +150,79 @@ export function detectedModelSwitches(blocks = []) {
   return result;
 }
 
+const identityKey = (identity = {}) => [identity.provider || '', identity.modelId || '', identity.host || '', identity.harness || ''].join('|');
+const eventSort = (a, b) => String(a.timestamp).localeCompare(String(b.timestamp)) || String(a.sequence || '').localeCompare(String(b.sequence || '')) || String(a.id).localeCompare(String(b.id));
+const isAfter = (value, cutoff) => !cutoff || (value && new Date(value).getTime() >= new Date(cutoff).getTime());
+const isKnownIdentity = (identity = {}) => Boolean(identity.modelId && identity.modelId !== 'unknown' && identity.modelId !== 'auto');
+const isSubstantive = (item) => (item.type === 'tool_call' && !item.metadata?.validator) || ['implementation_event', 'file_change', 'edit_applied'].includes(item.type);
+const terminalValidation = (item) => item.type === 'validation_attempted';
+
+// Builds only prospective comparison evidence. Existing historical session data
+// remains descriptive until an explicit local tracking boundary and task cycle
+// exist; no transcript body or command text is consulted here.
+export function normalizeProspectiveComparison(foundation = {}, { instrumentationStartedAt = null, userCycles = [] } = {}) {
+  if (!instrumentationStartedAt) return { ...foundation, attempts: [], modelSegments: [], comparisonEvidence: { prospective: false, reason: 'no_instrumentation_boundary' } };
+  const byBlock = new Map((foundation.workBlocks || []).map((block) => [block.id, block]));
+  const cycleForBlock = new Map();
+  for (const cycle of userCycles) if (cycle?.taskKey) for (const id of cycle.workBlockIds || []) cycleForBlock.set(id, cycle);
+  const relevantBlocks = new Set([...cycleForBlock.keys()]);
+  const raw = (foundation.events || []).filter((item) => relevantBlocks.has(item.workBlockId) && isAfter(item.timestamp, instrumentationStartedAt));
+  const events = raw.map((item) => ({ ...item, cycleId: cycleForBlock.get(item.workBlockId)?.id || null, identity: item.identity || byBlock.get(item.workBlockId)?.identity || null })).sort(eventSort);
+  const grouped = new Map();
+  for (const item of events) (grouped.get(item.workBlockId) || grouped.set(item.workBlockId, []).get(item.workBlockId)).push(item);
+  const segments = [], attempts = [], rechecks = [];
+  for (const [workBlockId, rows] of grouped) {
+    const cycle = cycleForBlock.get(workBlockId), block = byBlock.get(workBlockId);
+    let activeSegment = null, activeAttempt = null, substantiveSinceTerminal = false;
+    for (const row of rows) {
+      const identity = row.identity || block?.identity || null, key = identityKey(identity || {});
+      if (isKnownIdentity(identity) && (!activeSegment || activeSegment.identityKey !== key)) {
+        activeSegment = { id: `segment:${hash(`${cycle.id}:${workBlockId}:${row.id}:${key}`)}`, cycleId: cycle.id, workBlockId, attemptId: null, startedAt: row.timestamp, endedAt: row.timestamp, identity: { ...identity }, identityKey: key, usageObservationIds: [], eventIds: [], exactCostIds: [], boundary: activeSegment ? 'source-identity-change' : 'explicit-attempt', evidence: EFFICIENCY_EVIDENCE.measured };
+        segments.push(activeSegment);
+      }
+      if (activeSegment) { activeSegment.eventIds.push(row.id); activeSegment.endedAt = row.timestamp; }
+      if (isSubstantive(row)) substantiveSinceTerminal = true;
+      if (!terminalValidation(row) || !row.metadata?.validationContract || !activeSegment) continue;
+      const sameContract = activeAttempt?.validationContract?.targetId === row.metadata.validationContract.targetId && activeAttempt?.validationContract?.strength === row.metadata.validationContract.strength;
+      if (!activeAttempt || substantiveSinceTerminal || !sameContract || activeAttempt.modelSegmentId !== activeSegment.id) {
+        activeAttempt = { id: `attempt:${hash(`${cycle.id}:${workBlockId}:${row.id}`)}`, cycleId: cycle.id, workBlockId, sessionId: row.sessionId, modelSegmentId: activeSegment.id, startedAt: row.timestamp, endedAt: row.timestamp, validationContract: { ...row.metadata.validationContract }, validationEventIds: [], usageObservationIds: [], errorEventIds: [], capabilityEvidenceIds: [], recheckEventIds: [], result: 'unknown', evidence: EFFICIENCY_EVIDENCE.measured };
+        attempts.push(activeAttempt);
+        activeSegment.attemptId = activeAttempt.id;
+      } else {
+        const recheck = { ...event({ sessionId: row.sessionId, timestamp: row.timestamp, type: 'validation_recheck', evidence: EFFICIENCY_EVIDENCE.inferred, source: 'prospective-validation-sequence', sequence: row.sequence, identity: row.identity, metadata: { validationContract: row.metadata.validationContract, validationEventId: row.id } }), workBlockId, cycleId: cycle.id, attemptId: activeAttempt.id };
+        rechecks.push(recheck);
+        activeAttempt.recheckEventIds.push(recheck.id);
+      }
+      activeAttempt.validationEventIds.push(row.id);
+      activeAttempt.endedAt = row.timestamp;
+      const terminal = rows.find((candidate) => candidate.sessionId === row.sessionId && candidate.timestamp === row.timestamp && (candidate.type === 'validation_passed' || candidate.type === 'validation_failed') && candidate.metadata?.validationContract?.targetId === row.metadata.validationContract.targetId);
+      if (terminal?.type === 'validation_passed') activeAttempt.result = 'completed';
+      else if (terminal?.type === 'validation_failed') activeAttempt.result = 'failed';
+      substantiveSinceTerminal = false;
+    }
+  }
+  const segmentByBlock = new Map();
+  for (const segment of segments) (segmentByBlock.get(segment.workBlockId) || segmentByBlock.set(segment.workBlockId, []).get(segment.workBlockId)).push(segment);
+  for (const usage of foundation.usageObservations || []) {
+    const candidates = segmentByBlock.get(usage.workBlockId) || [];
+    if (candidates.length === 1 && identityKey(candidates[0].identity) === identityKey(usage.identity)) candidates[0].usageObservationIds.push(usage.id);
+  }
+  for (const attempt of attempts) {
+    const segment = segments.find((item) => item.id === attempt.modelSegmentId);
+    attempt.usageObservationIds = segment?.usageObservationIds || [];
+    attempt.errorEventIds = events.filter((item) => item.workBlockId === attempt.workBlockId && item.timestamp >= attempt.startedAt && item.timestamp <= attempt.endedAt && ['validation_failed', 'tool_error', 'command_nonzero_exit', 'process_failure'].includes(item.type)).map((item) => item.id);
+  }
+  return { ...foundation, events: [...(foundation.events || []), ...rechecks], attempts, modelSegments: segments, comparisonEvidence: { prospective: true, instrumentationStartedAt, eligibleCycleCount: new Set(attempts.map((item) => item.cycleId)).size } };
+}
+
 export function buildEfficiencyFoundation({ sessions = [], capabilityUsageEvents = [] } = {}) {
   const blocks = workBlocks(sessions), bySession = new Map(blocks.flatMap((block) => block.sessionIds.map((id) => [id, block])));
   const observations = usageObservations(sessions).map((item) => ({ ...item, workBlockId: bySession.get(item.sessionId)?.id || null }));
-  const structural = sessions.flatMap((session) => (session.efficiencyEvents || []).map((item) => ({ ...item, workBlockId: bySession.get(session.id)?.id || null, projectId: session.projectId || null, identity: { agent: session.agent || null, host: session.host || null, harness: session.harness || null, provider: session.provider || null, model: session.model || null, modelId: session.modelId || null } })));
+  const structural = sessions.flatMap((session) => (session.efficiencyEvents || []).map((item) => ({ ...item, workBlockId: bySession.get(session.id)?.id || null, projectId: session.projectId || null, identity: item.identity || { agent: session.agent || null, host: session.host || null, harness: session.harness || null, provider: session.provider || null, model: session.model || null, modelId: session.modelId || null } })));
   const retries = inferredRetries(structural);
-  const attempts = structural.filter((item) => item.type === 'validation_attempted').map((item) => ({ id: `attempt:${hash(item.id)}`, workBlockId: item.workBlockId, sessionId: item.sessionId, startedAt: item.timestamp, endedAt: item.timestamp, result: 'unknown', evidence: EFFICIENCY_EVIDENCE.measured, usageObservationIds: observations.filter((usage) => usage.sessionId === item.sessionId).map((usage) => usage.id), errorEventIds: structural.filter((candidate) => candidate.sessionId === item.sessionId && ['validation_failed', 'tool_error', 'command_nonzero_exit'].includes(candidate.type)).map((candidate) => candidate.id), capabilityEvidenceIds: [] }));
-  for (const attempt of attempts) {
-    const own = structural.find((item) => `attempt:${hash(item.id)}` === attempt.id);
-    if (own?.type === 'validation_attempted') {
-      const result = structural.find((item) => item.sessionId === own.sessionId && item.timestamp === own.timestamp && (item.type === 'validation_passed' || item.type === 'validation_failed'));
-      attempt.result = result?.type === 'validation_passed' ? 'completed' : result?.type === 'validation_failed' ? 'failed' : 'unknown';
-    }
-  }
   const outcomes = structural.filter((item) => ['validation_passed', 'validation_failed', 'task_complete_structured'].includes(item.type)).map((item) => ({ id: `outcome:${hash(item.id)}`, workBlockId: item.workBlockId, state: 'unknown', evidenceClass: item.type.startsWith('validation') ? 'test-result' : 'host-structured', checks: [{ kind: item.type, status: item.type === 'validation_passed' ? 'passed' : item.type === 'validation_failed' ? 'failed' : 'observed', observedAt: item.timestamp, source: item.source }], recordedAt: item.timestamp }));
   const capabilityEvidence = capabilityUsageEvents.map((item) => ({ id: `capability-evidence:${hash(item.id)}`, capabilityId: item.capabilityId, host: item.agent === 'Claude' ? 'Claude Code' : null, projectId: item.projectId || null, sessionId: item.sessionId || null, attemptId: null, workBlockId: bySession.get(item.sessionId)?.id || null, class: 'confirmed-invocation', source: item.evidenceType, observedAt: item.timestamp, details: {} }));
-  for (const attempt of attempts) attempt.capabilityEvidenceIds = capabilityEvidence.filter((item) => item.sessionId === attempt.sessionId).map((item) => item.id);
-  return { metricDefinitionVersion: EFFICIENCY_METRIC_VERSION, privacyClass: 'structural-only', usageObservations: observations, workBlocks: blocks, attempts, events: [...structural, ...retries], outcomes, capabilityEvidence, controlledExperiments: [], modelSwitches: detectedModelSwitches(blocks) };
+  return { metricDefinitionVersion: EFFICIENCY_METRIC_VERSION, privacyClass: 'structural-only', usageObservations: observations, workBlocks: blocks, attempts: [], modelSegments: [], events: [...structural, ...retries], outcomes, capabilityEvidence, controlledExperiments: [], modelSwitches: detectedModelSwitches(blocks) };
 }
 
 function blankModel(identity = {}) { return { model: identity.model || 'Unknown model', modelId: identity.modelId || 'unknown', provider: identity.provider || null, host: identity.host || null, workBlocks: 0, sessions: new Set(), tokens: emptyTokens(), tokenObservationCount: 0, tests: { attempted: null, passed: null, failed: null }, toolCalls: null, toolFailures: null, commandFailures: null, retriesMeasured: null, retriesInferred: null, possibleRework: null, exactApiCost: null, costCoverage: 'Unavailable', modelSwitches: 0 }; }
@@ -167,5 +241,7 @@ export function efficiencySnapshot(foundation = {}, { period = '7d', now = new D
   if (remoteRangeMatches) for (const item of remoteAnalytics?.models || []) if (item.modelId && item.cost != null) { const row = ensure(item); row.exactApiCost = (row.exactApiCost || 0) + item.cost; row.costCoverage = 'Exact OpenRouter provider-reported aggregate; not assigned to a work block.'; }
   const models = [...rows.values()].map((row) => ({ ...row, sessions: row.sessions.size, freshPlusOutput: row.tokenObservationCount ? freshPlusOutput(row.tokens) : null, observedTokenActivity: row.tokenObservationCount ? tokenActivity(row.tokens) : null, comparison: { eligible: false, reason: 'Not enough observations to compare: this foundation does not yet have equivalent task/outcome cohorts.' } })).sort((a, b) => b.workBlocks - a.workBlocks || String(a.model).localeCompare(String(b.model)));
   const caps = (foundation.capabilityEvidence || []).filter((item) => byBlock.has(item.workBlockId)).reduce((all, item) => { const current = all.get(item.capabilityId) || { capabilityId: item.capabilityId, confirmedInvocations: 0, workBlocks: new Set(), observationalOnly: true }; current.confirmedInvocations++; current.workBlocks.add(item.workBlockId); all.set(item.capabilityId, current); return all; }, new Map());
-  return { metricDefinitionVersion: EFFICIENCY_METRIC_VERSION, period: { ...bounds, start: bounds.start?.toISOString?.() || null, end: bounds.end?.toISOString?.() || null }, evidenceLegend: EFFICIENCY_EVIDENCE, readiness: { workBlocks: blocks.length, attempts: (foundation.attempts || []).filter((item) => byBlock.has(item.workBlockId)).length, outcomes: (foundation.outcomes || []).filter((item) => byBlock.has(item.workBlockId)).length, comparable: false, reason: 'Descriptive evidence only. Equivalent tasks and outcome criteria are required before comparison.' }, models, capabilities: [...caps.values()].map((item) => ({ ...item, workBlocks: item.workBlocks.size })), workBlocks: blocks, outcomes: (foundation.outcomes || []).filter((item) => byBlock.has(item.workBlockId)), sharing: 'disabled' };
+  const comparisons = comparisonMetrics(foundation, { period: { id: bounds.id, start: bounds.start?.toISOString?.() || null, end: bounds.end?.toISOString?.() || null } });
+  const validationContracts = [...new Map((foundation.events || []).filter((item) => byBlock.has(item.workBlockId) && item.metadata?.validationContract).map((item) => { const contract = item.metadata.validationContract; return [`${contract.targetId}|${contract.kind}|${contract.strength}|${contract.version || ''}`, contract]; })).values()];
+  return { metricDefinitionVersion: EFFICIENCY_METRIC_VERSION, period: { ...bounds, start: bounds.start?.toISOString?.() || null, end: bounds.end?.toISOString?.() || null }, evidenceLegend: EFFICIENCY_EVIDENCE, readiness: { workBlocks: blocks.length, attempts: (foundation.attempts || []).filter((item) => byBlock.has(item.workBlockId)).length, outcomes: (foundation.outcomes || []).filter((item) => byBlock.has(item.workBlockId)).length, comparable: comparisons.comparable, reason: comparisons.comparable ? 'Comparable cohorts meet the current evidence gate.' : 'Descriptive evidence only. Equivalent tasks and outcome criteria are required before comparison.' }, models, capabilities: [...caps.values()].map((item) => ({ ...item, workBlocks: item.workBlocks.size })), workBlocks: blocks, outcomes: (foundation.outcomes || []).filter((item) => byBlock.has(item.workBlockId)), validationContracts, comparisons, sharing: 'disabled' };
 }

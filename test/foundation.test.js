@@ -19,8 +19,9 @@ import { createOpenRouterService } from '../src/openrouter/service.js';
 import { analyticsSchema, normalizeAnalytics } from '../src/openrouter/analytics.js';
 import { shareableStack } from '../src/sharing.js';
 import { antigravityCapacity, antigravityCaptureConfigured, antigravitySettingsPath, antigravityStatePath, disableAntigravityCapture, enableAntigravityCapture, normalizeAntigravityStatus, previewAntigravityCapture, readAntigravitySettings } from '../src/antigravity.js';
-import { EFFICIENCY_EVIDENCE, buildEfficiencyFoundation, classifyValidationCommand, detectedModelSwitches, efficiencySnapshot, inferPossibleRework, structuralEventsFromRecord } from '../src/efficiency.js';
+import { EFFICIENCY_EVIDENCE, buildEfficiencyFoundation, classifyValidationCommand, detectedModelSwitches, efficiencySnapshot, inferPossibleRework, structuralEventsFromRecord, validationContractFor } from '../src/efficiency.js';
 import { applyEfficiencyMetadata, beginComparisonTracking, createCycle, EFFICIENCY_METADATA_VERSION, loadEfficiencyMetadata, recordOutcome, saveEfficiencyMetadata } from '../src/efficiency-store.js';
+import { buildComparableCohorts, COHORT_CLASSES, comparisonMetrics, eligibilityResult, sampleGate } from '../src/efficiency-comparison.js';
 import { readPlanCapacity } from '../src/capacity.js';
 
 const temp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
@@ -283,10 +284,80 @@ test('efficiency foundation keeps session work blocks descriptive and tasks unkn
   const foundation = buildEfficiencyFoundation({ sessions: [efficiencySession({ efficiencyEvents: [...failure, ...pass] })], capabilityUsageEvents: [{ id: 'skill-event', capabilityId: 'capability:one', sessionId: 'Codex:eff-1', projectId: 'project:alpha', timestamp: '2026-08-21T10:16:00Z', evidenceType: 'Claude structured attributionSkill' }] });
   assert.equal(foundation.workBlocks.length, 1);
   assert.equal(foundation.workBlocks[0].boundaryMethod, 'session-proxy');
-  assert.equal(foundation.attempts.length, 2);
+  assert.equal(foundation.attempts.length, 0);
   assert.equal(foundation.outcomes.some((item) => item.state === 'accepted'), false);
   assert.equal(foundation.events.some((item) => item.type === 'retry_inferred' && item.evidence === EFFICIENCY_EVIDENCE.inferred), true);
   assert.equal(foundation.capabilityEvidence[0].class, 'confirmed-invocation');
+});
+
+test('prospective comparison normalization separates rechecks, attempts, and model segments', () => {
+  const failure = structuralEventsFromRecord({ timestamp: '2026-08-22T10:10:00Z', type: 'command_execution', payload: { command: 'npm test', exit_code: 1 } }, { sessionId: 'Codex:eff-1', source: 'fixture', sequence: 1 });
+  const recheckPass = structuralEventsFromRecord({ timestamp: '2026-08-22T10:11:00Z', type: 'command_execution', payload: { command: 'npm test', exit_code: 0 } }, { sessionId: 'Codex:eff-1', source: 'fixture', sequence: 2 });
+  const work = structuralEventsFromRecord({ timestamp: '2026-08-22T10:12:00Z', type: 'function_call', payload: { type: 'function_call' } }, { sessionId: 'Codex:eff-1', source: 'fixture', sequence: 3 });
+  const finalPass = structuralEventsFromRecord({ timestamp: '2026-08-22T10:15:00Z', type: 'command_execution', payload: { command: 'npm test', exit_code: 0 } }, { sessionId: 'Codex:eff-1', source: 'fixture', sequence: 4 });
+  const base = buildEfficiencyFoundation({ sessions: [efficiencySession({ timestamp: '2026-08-22T10:00:00Z', usageStartedAt: '2026-08-22T10:00:00Z', usageEndedAt: '2026-08-22T10:20:00Z', efficiencyEvents: [...failure, ...recheckPass, ...work, ...finalPass] })] });
+  const applied = applyEfficiencyMetadata(base, { comparison: { instrumentationStartedAt: '2026-08-22T00:00:00Z' }, cycles: [{ id: 'cycle:future', workBlockIds: [base.workBlocks[0].id], taskKey: 'task:opaque', validationContract: validationContractFor('javascript-test') }] });
+  assert.equal(applied.modelSegments.length, 1);
+  assert.equal(applied.attempts.length, 2);
+  assert.equal(applied.attempts[0].recheckEventIds.length, 1);
+  assert.equal(applied.attempts[1].result, 'completed');
+  assert.equal(applied.attempts.every((item) => item.validationContract.strength === 'V2'), true);
+});
+
+test('comparison cohorts preserve strong, loose, and excluded evidence with reason codes', () => {
+  const passFor = (sessionId, sequence) => structuralEventsFromRecord({ timestamp: '2026-08-22T10:10:00Z', type: 'command_execution', payload: { command: 'npm test', exit_code: 0 } }, { sessionId, source: 'fixture', sequence });
+  const one = efficiencySession({ id: 'Codex:one', model: 'Model A', modelId: 'model-a', modelRaw: 'model-a', timestamp: '2026-08-22T10:00:00Z', usageStartedAt: '2026-08-22T10:00:00Z', efficiencyEvents: passFor('Codex:one', 1) });
+  const two = efficiencySession({ id: 'Codex:two', model: 'Model B', modelId: 'model-b', modelRaw: 'model-b', timestamp: '2026-08-22T10:00:00Z', usageStartedAt: '2026-08-22T10:00:00Z', efficiencyEvents: passFor('Codex:two', 2) });
+  const base = buildEfficiencyFoundation({ sessions: [one, two] }), [first, second] = base.workBlocks;
+  const foundation = applyEfficiencyMetadata(base, { comparison: { instrumentationStartedAt: '2026-08-22T00:00:00Z' }, outcomes: { [first.id]: { state: 'accepted' }, [second.id]: { state: 'accepted' } }, cycles: [
+    { id: 'cycle:a', workBlockIds: [first.id], taskKey: 'task:same', validationContract: validationContractFor('javascript-test'), capabilityConfigurationKnown: true },
+    { id: 'cycle:b', workBlockIds: [second.id], taskKey: 'task:same', validationContract: validationContractFor('javascript-test'), capabilityConfigurationKnown: true }
+  ] });
+  const cohort = buildComparableCohorts(foundation)[0];
+  assert.equal(cohort.classification, COHORT_CLASSES.stronglyMatched);
+  assert.equal(cohort.eligible, true);
+  assert.equal(cohort.variants.length, 2);
+  assert.equal(cohort.variants[0].eligibility[0].eligible, true);
+  const loose = buildComparableCohorts({ ...foundation, userCycles: foundation.userCycles.map((cycle) => ({ ...cycle, taskKey: null, taskCategory: 'implementation', capabilityConfigurationKnown: true })) })[0];
+  assert.equal(loose.classification, COHORT_CLASSES.looselyMatched);
+  assert.equal(loose.eligible, false);
+  const unknown = eligibilityResult({ ...cohort.variants[0].observations[0], reasons: ['unknown_model'], validated: false, accepted: false, cycle: { capabilityConfigurationKnown: false } });
+  assert.equal(unknown.eligible, false);
+  assert.equal(unknown.reasonCodes.includes('unknown_model'), true);
+  const providerInterrupted = eligibilityResult({ ...cohort.variants[0].observations[0], providerInterrupted: true }, { metric: 'quality' });
+  assert.equal(providerInterrupted.eligible, false);
+  assert.equal(providerInterrupted.reasonCodes.includes('provider_infrastructure_interruption'), true);
+});
+
+test('comparison metrics use Fresh + Output, exact attribution, and fixed sample gates', () => {
+  const passFor = (sessionId, sequence) => structuralEventsFromRecord({ timestamp: '2026-08-22T10:10:00Z', type: 'command_execution', payload: { command: 'npm test', exit_code: 0 } }, { sessionId, source: 'fixture', sequence });
+  const sessions = ['a', 'b'].map((suffix, index) => efficiencySession({ id: `Codex:${suffix}`, model: `Model ${suffix}`, modelId: `model-${suffix}`, modelRaw: `model-${suffix}`, timestamp: '2026-08-22T10:00:00Z', usageStartedAt: '2026-08-22T10:00:00Z', efficiencyEvents: passFor(`Codex:${suffix}`, index + 1) }));
+  const base = buildEfficiencyFoundation({ sessions }), [first, second] = base.workBlocks;
+  const foundation = applyEfficiencyMetadata(base, { comparison: { instrumentationStartedAt: '2026-08-22T00:00:00Z' }, outcomes: { [first.id]: { state: 'accepted' }, [second.id]: { state: 'accepted' } }, cycles: [
+    { id: 'cycle:a', workBlockIds: [first.id], taskKey: 'task:metric', validationContract: validationContractFor('javascript-test'), capabilityConfigurationKnown: true },
+    { id: 'cycle:b', workBlockIds: [second.id], taskKey: 'task:metric', validationContract: validationContractFor('javascript-test'), capabilityConfigurationKnown: true }
+  ] });
+  const [segment] = foundation.modelSegments;
+  const metrics = comparisonMetrics({ ...foundation, exactCostObservations: [{ cycleId: segment.cycleId, modelSegmentId: segment.id, semantic: 'provider-billed', amount: 0.12 }] });
+  const priced = metrics.cohorts[0].variants.find((variant) => variant.observations[0].segment.id === segment.id);
+  const unpriced = metrics.cohorts[0].variants.find((variant) => variant !== priced);
+  assert.equal(priced.metrics.freshPlusOutput.median, 125);
+  assert.equal(priced.metrics.exactCostUntilValidation.median, 0.12);
+  assert.equal(unpriced.metrics.exactCostUntilValidation, null);
+  assert.equal(sampleGate({ variants: [{ metrics: { eligibleAttempts: 1, acceptedOutcomes: 1 } }, { metrics: { eligibleAttempts: 1, acceptedOutcomes: 1 } }] }).state, 'raw-only');
+  assert.equal(sampleGate({ variants: [{ metrics: { eligibleAttempts: 3, acceptedOutcomes: 3 } }, { metrics: { eligibleAttempts: 3, acceptedOutcomes: 3 } }] }).state, 'limited-data');
+  assert.equal(sampleGate({ variants: [{ metrics: { eligibleAttempts: 5, acceptedOutcomes: 5 } }, { metrics: { eligibleAttempts: 5, acceptedOutcomes: 5 } }] }).state, 'limited-sample');
+  assert.equal(sampleGate({ variants: [{ metrics: { eligibleAttempts: 10, acceptedOutcomes: 5 } }, { metrics: { eligibleAttempts: 10, acceptedOutcomes: 5 } }] }).state, 'observational-comparison');
+  assert.equal(sampleGate({ variants: [{ metrics: { eligibleAttempts: 20, acceptedOutcomes: 20, unknownOutcomeCoverage: 0, tokenCoverage: 1 } }, { metrics: { eligibleAttempts: 20, acceptedOutcomes: 20, unknownOutcomeCoverage: 0, tokenCoverage: 1 } }] }).state, 'observational-summary');
+  assert.equal(sampleGate({ paired: true, variants: [{ metrics: { eligibleAttempts: 10 } }, { metrics: { eligibleAttempts: 10 } }] }).state, 'controlled-exploratory');
+});
+
+test('comparison metadata never enters a shareable stack', () => {
+  const shared = shareableStack({ summary: { agents: [], tokens: {}, sessions: 0, activeProjects: 0, capabilityUses: 0 }, sessions: [], capabilities: [], efficiency: { comparisons: { cohorts: [{ taskKey: 'task:private', privateLabel: 'Private objective', exactCost: 4.2 }] } } });
+  const text = JSON.stringify(shared);
+  assert.equal(text.includes('task:private'), false);
+  assert.equal(text.includes('Private objective'), false);
+  assert.equal(text.includes('4.2'), false);
 });
 
 test('efficiency snapshot preserves unavailable metrics, exact remote cost, and sample guardrails', () => {

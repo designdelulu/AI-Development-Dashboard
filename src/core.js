@@ -96,7 +96,7 @@ export function scanClaude(projects, root = path.join(home, '.claude', 'projects
       if (candidate && (!best || candidate.canonicalPath.length > best.canonicalPath.length)) best = candidate;
       const extracted = extractUsageEvent(row);
       if (extracted) usage.push(extracted);
-      event.efficiencyEvents.push(...structuralEventsFromRecord(row, { sessionId: event.id, source: 'claude-jsonl', sequence: sequence++, model: event.model }));
+      event.efficiencyEvents.push(...structuralEventsFromRecord(row, { sessionId: event.id, source: 'claude-jsonl', sequence: sequence++, model: event.model, identity: { agent: event.agent, host: event.host, harness: event.harness, provider: event.provider, model: event.model, modelRaw: event.modelRaw, modelId: event.modelId } }));
       if (row.type === 'assistant' && Array.isArray(row.message?.content)) event.tools += row.message.content.filter((x) => x.type === 'tool_use').length;
       if (row.isCompactSummary || row.compactMetadata || /compact|summary/i.test(row.type || '')) event.compactions++;
       if (row.timestamp && (!event.timestamp || row.timestamp > event.timestamp)) event.timestamp = iso(row.timestamp);
@@ -147,7 +147,7 @@ export function scanCodex(projects, root = path.join(home, '.codex', 'sessions')
       if (c && (!best || c.canonicalPath.length > best.canonicalPath.length)) best = c;
       const extracted = extractUsageEvent(row);
       if (extracted) usage.push(extracted);
-      event.efficiencyEvents.push(...structuralEventsFromRecord(row, { sessionId: event.id, source: 'codex-jsonl', sequence: sequence++, model: event.model }));
+      event.efficiencyEvents.push(...structuralEventsFromRecord(row, { sessionId: event.id, source: 'codex-jsonl', sequence: sequence++, model: event.model, identity: { agent: event.agent, host: event.host, harness: event.harness, provider: event.provider, model: event.model, modelRaw: event.modelRaw, modelId: event.modelId } }));
       if (/tool|function_call|command_execution/.test(row.type || '') || p.type === 'function_call') event.tools++;
       if (/compact|summary/i.test(row.type || '') || /compact/i.test(p.event_type || '')) event.compactions++;
       if (row.timestamp && (!event.timestamp || row.timestamp > event.timestamp)) event.timestamp = iso(row.timestamp);
