@@ -71,6 +71,14 @@ test('schema migration adds a recomputable visual scale without changing legacy 
   assert.deepEqual(legacy.sessions, []);
 });
 
+test('unchanged normalized data retains derived scale state until a bucket closes or data changes', () => {
+  const initial = buildTokenVisualScale(calendar({ '2026-08-01': 50_000, '2026-08-02': 60_000 }), null, localNoon('2026-08-03'));
+  const retained = buildTokenVisualScale(calendar({ '2026-08-01': 50_000, '2026-08-02': 60_000 }), initial, localNoon('2026-08-03'));
+  assert.equal(retained, initial);
+  const updated = buildTokenVisualScale(calendar({ '2026-08-01': 50_000, '2026-08-02': 70_000 }), initial, localNoon('2026-08-03'));
+  assert.notEqual(updated, initial);
+});
+
 test('dynamic contributors share the learned Fresh + Output scale instead of normalizing to the peak', () => {
   const html = tokenBarRows([
     { agent: 'Kimi 2099', available: true, freshPlusOutput: 10_000, observedActivity: 1_000_000, evidence: 'exact', share: 0.9 },

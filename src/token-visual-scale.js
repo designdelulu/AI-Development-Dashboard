@@ -36,6 +36,10 @@ function observedBuckets(calendar = {}, now = new Date()) {
 export function buildTokenVisualScale(calendar = {}, previous = null, now = new Date()) {
   const buckets = observedBuckets(calendar, now);
   const currentDate = localDateKey(now);
+  const calendarSignature = buckets.map((bucket) => `${bucket.date}:${bucket.value}:${bucket.evidence}`).join('|');
+  // Idle scans retain the last derived state. A current-day rollover still
+  // recomputes so the prior active bucket can close and become a record.
+  if (previous?.version === TOKEN_VISUAL_SCALE_VERSION && previous.calendarSignature === calendarSignature && previous.current?.date === currentDate) return previous;
   const completed = buckets.filter((bucket) => bucket.complete);
   const recent = completed.slice(-TOKEN_VISUAL_RECENT_DAYS);
   const recentValues = recent.map((bucket) => bucket.value);
@@ -63,6 +67,7 @@ export function buildTokenVisualScale(calendar = {}, previous = null, now = new 
     recent: { days: TOKEN_VISUAL_RECENT_DAYS, sampleCount: recent.length, p95: recentP95, learned, visualCeiling: ceiling, headroom: TOKEN_VISUAL_HEADROOM, bootstrapFloor: TOKEN_VISUAL_BOOTSTRAP_FLOOR },
     lifetimeHigh,
     record,
+    calendarSignature,
     recomputable: 'Available normalized local-day buckets; no transcript reread is required.',
     computedAt: new Date(now).toISOString()
   };
