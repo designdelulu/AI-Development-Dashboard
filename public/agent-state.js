@@ -9,13 +9,15 @@ const timestamp=value=>{const time=new Date(value).getTime();return Number.isFin
 const totals=()=>({observedWorkingMs:0,waitingForUserMs:0,recentlyActiveMs:0,observedIdleMs:0,unknownMs:0,unobservedMs:0});
 const bucket={Working:'observedWorkingMs','Needs You':'waitingForUserMs','Recently Active':'recentlyActiveMs',Idle:'observedIdleMs',Unknown:'unknownMs'};
 
-export function classifyAgentState(events,agent,now=Date.now(),{sourceKnown=true,workingGraceMs=WORKING_GRACE_MS,recentActiveWindowMs=RECENT_ACTIVE_WINDOW_MS,attention=null,attentionMaxAgeMs=ATTENTION_MAX_AGE_MS}={}){
+export function classifyAgentState(events,agent,now=Date.now(),{sourceKnown=true,workingGraceMs=WORKING_GRACE_MS,recentActiveWindowMs=RECENT_ACTIVE_WINDOW_MS,attention=null,attentionMaxAgeMs=ATTENTION_MAX_AGE_MS,inProgress=null}={}){
   if(!sourceKnown)return {agent,state:AGENT_STATES.unknown,since:now,lastEventAt:null,confidence:'Unavailable',reason:'No supported local activity source is available.'};
   const times=events.filter(event=>event.agent===agent).map(event=>timestamp(event.timestamp)).filter(time=>time!=null&&time<=now).sort((a,b)=>a-b),lastEventAt=times.at(-1)||null;
+  const attentionAt=timestamp(attention?.at);
+  if(attentionAt!=null&&attentionAt<=now&&now-attentionAt<=attentionMaxAgeMs&&(lastEventAt==null||lastEventAt<=attentionAt)){return {agent,state:AGENT_STATES.waiting,since:attentionAt,lastEventAt,attentionKind:attention.kind||'structured-attention',confidence:'Structured',reason:attention.reason||'A supported local record says this session is awaiting user action.'};}
+  const inProgressAt=timestamp(inProgress?.since);
+  if(inProgress?.active===true&&inProgressAt!=null&&inProgressAt<=now)return {agent,state:AGENT_STATES.working,since:inProgressAt,lastEventAt,confidence:inProgress.confidence||'Structured',reason:inProgress.reason||'A structurally observed local operation remains in progress.'};
   if(lastEventAt==null)return {agent,state:AGENT_STATES.idle,since:now,lastEventAt:null,confidence:'Observed absence',reason:'No relevant activity has been observed since live tracking started.'};
   const age=now-lastEventAt;
-  const attentionAt=timestamp(attention?.at);
-  if(attentionAt!=null&&attentionAt<=now&&now-attentionAt<=attentionMaxAgeMs&&lastEventAt<=attentionAt){return {agent,state:AGENT_STATES.waiting,since:attentionAt,lastEventAt,attentionKind:attention.kind||'structured-attention',confidence:'Structured',reason:attention.reason||'A supported local record says this session is awaiting user action.'};}
   if(age<=workingGraceMs){let burstStart=lastEventAt;for(let index=times.length-2;index>=0;index--){if(burstStart-times[index]>workingGraceMs)break;burstStart=times[index]}return {agent,state:AGENT_STATES.working,since:burstStart,lastEventAt,confidence:'Observed',reason:'Validated local activity changed within the working window.'};}
   if(age<=recentActiveWindowMs)return {agent,state:AGENT_STATES.recent,since:lastEventAt+workingGraceMs,lastEventAt,confidence:'Observed',reason:'Recent local activity stopped; no structured signal says user action is required.'};
   return {agent,state:AGENT_STATES.idle,since:lastEventAt+recentActiveWindowMs,lastEventAt,confidence:'Observed absence',reason:'No relevant local activity remains inside the recent-session window.'};

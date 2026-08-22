@@ -34,7 +34,7 @@ export function addEvidence(target = emptyEvidence(), evidence = TOKEN_EVIDENCE.
 
 export function formatObservedTokens(value, { estimated = false, mixed = false } = {}) {
   const amount = Number(value) || 0;
-  const compact = amount >= 1e6 ? `${(amount / 1e6).toFixed(1)}M` : amount >= 1e3 ? `${(amount / 1e3).toFixed(0)}K` : new Intl.NumberFormat().format(amount);
+  const compact = amount >= 1e9 ? `${(amount / 1e9).toFixed(2)}B` : amount >= 1e6 ? `${(amount / 1e6).toFixed(1)}M` : amount >= 1e3 ? `${(amount / 1e3).toFixed(0)}K` : new Intl.NumberFormat().format(amount);
   if (mixed || estimated) return `~${compact}`;
   return compact;
 }

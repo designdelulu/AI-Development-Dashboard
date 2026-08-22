@@ -79,17 +79,39 @@ test('unchanged normalized data retains derived scale state until a bucket close
   assert.notEqual(updated, initial);
 });
 
-test('dynamic contributors share the learned Fresh + Output scale instead of normalizing to the peak', () => {
+test('token contributor bars use the displayed selected-range observed-token share, never adaptive intensity', () => {
   const html = tokenBarRows([
-    { agent: 'Kimi 2099', available: true, freshPlusOutput: 10_000, observedActivity: 1_000_000, evidence: 'exact', share: 0.9 },
-    { agent: 'Provider X', available: true, freshPlusOutput: 40_000, observedActivity: 40_000, evidence: 'mixed', share: 0.1 },
+    { agent: 'Codex', available: true, freshPlusOutput: 10_000, observedActivity: 66, evidence: 'exact', share: 0.66 },
+    { agent: 'Claude', available: true, freshPlusOutput: 40_000, observedActivity: 34, evidence: 'mixed', share: 0.34 },
+    { agent: 'Tiny source', available: true, freshPlusOutput: 999_999, observedActivity: .3, evidence: 'exact', share: .003 },
     { agent: 'Cursor', available: false, reason: 'Unavailable' }
   ], { visualCeiling: 100_000 });
-  assert.match(html, /width:10%/);
-  assert.match(html, /width:40%/);
-  assert.match(html, /Kimi 2099/);
-  assert.match(html, /Fresh \+ Output intensity/);
+  assert.match(html, /width:66%/);
+  assert.match(html, /width:34%/);
+  assert.match(html, /width:0\.3%/);
+  assert.match(html, /66%/);
+  assert.match(html, /34%/);
+  assert.match(html, /&lt;1%/);
+  assert.match(html, /Selected-range observed token activity share/);
   assert.match(html, /Estimated/);
+});
+
+test('large token totals switch to readable billions without changing values or share geometry', () => {
+  const html = tokenBarRows([{ agent: 'Codex', available: true, observedActivity: 7_717_900_000, share: .66 }]);
+  assert.match(html, /7\.72B · 66%/);
+  assert.match(html, /width:66%/);
+});
+
+test('token contributor share geometry remains proportional for balanced, dominant, and dynamic sources', () => {
+  for (const [left, right] of [[.5, .5], [.9, .1], [.01, .99]]) {
+    const html = tokenBarRows([
+      { agent: 'First', available: true, observedActivity: left * 100, share: left },
+      { agent: 'Second', available: true, observedActivity: right * 100, share: right },
+      { agent: 'Fourth dynamic runtime', available: true, observedActivity: 0, share: 0 }
+    ]);
+    assert.match(html, new RegExp(`width:${left * 100}%`));
+    assert.match(html, new RegExp(`width:${right * 100}%`));
+  }
 });
 
 test('token module renders quiet through record states as one adaptive intensity surface', () => {

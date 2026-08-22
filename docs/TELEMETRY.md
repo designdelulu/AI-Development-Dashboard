@@ -6,7 +6,7 @@ Every `ai-dashboard open` performs a local adapter discovery pass; known adapter
 
 ## Token Activity display scale
 
-Token Activity totals remain the normalized local calendar totals described in `METRICS.md`. The Live Feed’s adaptive intensity display separately stores a versioned local numeric scale: current-day Fresh + Output, a 30-completed-day recent P95 summary, and a completed-day lifetime high. It reads no raw transcript content and makes no network request. Cache reads/creation remain part of observed totals but do not set the primary intensity bar.
+Token Activity totals remain the normalized local calendar totals described in `METRICS.md`. Contributor bars are selected-range **observed-token shares** and use the same denominator as their printed percentage; the adaptive intensity display is a separate surface. The Live Feed’s adaptive intensity display separately stores a versioned local numeric scale: current-day Fresh + Output, a 30-completed-day recent P95 summary, and a completed-day lifetime high. It reads no raw transcript content and makes no network request. Cache reads/creation remain part of observed totals but do not set the primary intensity bar.
 
 ## OpenRouter connected telemetry (optional)
 

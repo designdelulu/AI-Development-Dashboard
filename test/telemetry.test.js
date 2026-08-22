@@ -182,4 +182,5 @@ test('future adapter contract names evidence without implementing extra provider
   assert.ok(TELEMETRY_CONTRACT.fields.includes('tokenEvidence'));
   assert.ok(TELEMETRY_CONTRACT.tokenEvidence.includes('exact'));
   assert.equal(formatObservedTokens(6812443, { estimated: true }), '~6.8M');
+  assert.equal(formatObservedTokens(7717900000), '7.72B');
 });

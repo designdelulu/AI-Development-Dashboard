@@ -3,7 +3,7 @@ import { brandOf } from './brands.js';
 const fmt = (n) => new Intl.NumberFormat().format(n || 0);
 const short = (n, evidence) => {
   const amount = Number(n) || 0;
-  const compact = amount >= 1e6 ? `${(amount / 1e6).toFixed(1)}M` : amount >= 1e3 ? `${(amount / 1e3).toFixed(0)}K` : fmt(amount);
+  const compact = amount >= 1e9 ? `${(amount / 1e9).toFixed(2)}B` : amount >= 1e6 ? `${(amount / 1e6).toFixed(1)}M` : amount >= 1e3 ? `${(amount / 1e3).toFixed(0)}K` : fmt(amount);
   return evidence === 'estimated' || evidence === 'mixed' ? `~${compact}` : compact;
 };
 const esc = (v) => String(v ?? '').replace(/[&<>"]/g, (x) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[x]));
@@ -51,10 +51,7 @@ export function liveFeedSignalState(states = {}) {
   return { mode: 'idle', label: 'All observed agents idle' };
 }
 
-export function tokenBarRows(contributions = [], { visualCeiling = null } = {}) {
-  const available = contributions.filter((row) => row.available);
-  const freshTotal = available.reduce((total, row) => total + Math.max(0, Number(row.freshPlusOutput) || 0), 0);
-  const scale = Number(visualCeiling) > 0 ? Number(visualCeiling) : null;
+export function tokenBarRows(contributions = []) {
   return contributions.map((row) => {
     const name = row.agent || row.provider || row.model;
     if (!row.available) {
@@ -62,15 +59,15 @@ export function tokenBarRows(contributions = [], { visualCeiling = null } = {}) 
       const link = action?.href ? `<a href="${esc(action.href)}" target="_blank" rel="noreferrer">${esc(action.label || 'View usage')}</a>` : '';
       return `<div class="token-agent is-unavailable">${glyph(name)}<div><strong>${esc(name)}</strong><small>${esc(row.reason || 'Local token telemetry unavailable')}</small></div><b>${link || 'Local token telemetry unavailable'}</b></div>`;
     }
-    const fresh = Math.max(0, Number(row.freshPlusOutput) || 0);
-    // A Today row shares the learned global daily scale. Wider report ranges
-    // show Fresh + Output share instead of pretending a seven-day total is a
-    // one-day intensity bucket.
-    const width = scale ? Math.min(100, (fresh / scale) * 100) : freshTotal ? Math.min(100, (fresh / freshTotal) * 100) : 0;
-    const share = Math.round((row.share || 0) * 100);
+    // This is a selected-range observed-token *distribution* bar. Its geometry
+    // intentionally uses the exact same total-share denominator as its label;
+    // adaptive Fresh + Output intensity has its own meter above.
+    const exactShare = Math.max(0, Math.min(1, Number(row.share) || 0));
+    const width = exactShare * 100;
+    const share = exactShare > 0 && exactShare < .005 ? '<1%' : `${Math.round(exactShare * 100)}%`;
     const estimated = row.evidence === 'estimated' || row.evidence === 'mixed';
     const badge = estimated ? '<em class="token-estimated">Estimated</em>' : '';
-    return `<div class="token-agent">${glyph(name)}<div><strong>${esc(name)} ${badge}</strong><span class="token-track" title="Fresh + Output intensity: ${esc(short(fresh, row.evidence))}" aria-hidden="true"><i style="width:${width}%"></i></span></div><b>${short(row.observedActivity, row.evidence)} · ${share}%</b></div>`;
+    return `<div class="token-agent">${glyph(name)}<div><strong>${esc(name)} ${badge}</strong><span class="token-track" title="Selected-range observed token activity share: ${esc(share)}" aria-hidden="true"><i style="width:${width}%"></i></span></div><b>${short(row.observedActivity, row.evidence)} · ${esc(share)}</b></div>`;
   }).join('');
 }
 
@@ -156,7 +153,7 @@ export function tokenModule(report = {}, { selected = 'today', yesterday = null,
       <small>observed token activity${report.evidence === 'mixed' ? ` · includes ${short(report.estimatedObservedActivity || 0, 'estimated')} estimated` : report.evidence === 'estimated' ? ' · estimated' : ''}</small>
     </button>
     ${selected === 'today' ? scaleMarkup(visualScale) : ''}
-    <div class="token-agents">${tokenBarRows(report.byAgent || [], { visualCeiling: selected === 'today' ? visualScale?.recent?.visualCeiling : null })}</div>
+    <div class="token-agents">${tokenBarRows(report.byAgent || [])}</div>
     ${comparison}
     <div class="token-periods">${TOKEN_PERIOD_BUTTONS.map(([id, label]) => `<button data-token-period="${id}" class="${id === selected ? 'selected' : ''}" aria-pressed="${id === selected}">${esc(label)}</button>`).join('')}</div>
     <div class="token-actions"><button class="text-action" data-token-explain="1" aria-expanded="${explainOpen}">Explain this number</button></div>

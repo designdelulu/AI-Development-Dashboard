@@ -6,8 +6,9 @@ import { defaultSources, scan, applyProjectMetadata, PROJECT_STATUSES, achieveme
 import { createSystemSampler, liveStateSnapshot, sessionFileSignal } from './activity.js';
 import { readPlanCapacity } from './capacity.js';
 import { shareableStack, manifest, privateInventory, publicMetricOptions, createSnapshot, shareCardSvg, setupPrompt } from './sharing.js';
-import { claudeLiveDecision, isLiveActivityPath } from './live-files.js';
+import { claudeLiveDecision, cursorLiveDecision, isCursorTranscriptPath, isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
+import { ClaudeToolTracker, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
 import { loadSettings, saveSettings } from './config.js';
 import { releaseInfo } from './release.js';
 import { tokenReportFromCalendar } from './tokens.js';
@@ -38,7 +39,8 @@ const openRouter = createOpenRouterService({ dataDir });
 let liveIndex = null, lastReason = 'starting', refreshing = false;
 const sampleSystem = createSystemSampler();
 let latestSystem = sampleSystem(), latestCapacity = readPlanCapacity();
-const liveActivityEvents = [], liveFileSizes = new Map(), liveFiles = new Map(), attentionSignals = new Map(), previewSnapshots = new Map();
+const liveActivityEvents = [], liveFileSizes = new Map(), liveFiles = new Map(), attentionSignals = new Map(), cursorLiveCarries = new Map(), previewSnapshots = new Map();
+const claudeToolTracker = new ClaudeToolTracker();
 
 function projectMetadata() { try { return JSON.parse(fs.readFileSync(projectMetaFile, 'utf8')); } catch { return { version: 1, projects: {} }; } }
 function saveProjectMetadata(metadata) { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(projectMetaFile, JSON.stringify(metadata, null, 2)); }
@@ -121,6 +123,7 @@ function rememberLiveFiles(agent, dir, depth = 0) {
 }
 function emitLiveSignal(agent, candidate, previous, next) {
   const observedAt = Date.now();
+  if (agent === 'Claude' && candidate && next) claudeToolTracker.observe(candidate, { previousSize: previous?.size ?? 0, at: observedAt });
   const attention = candidate ? structuredAttentionFromFile(agent, candidate, observedAt) : null;
   const previousSize = agent === 'Claude' ? (previous?.size ?? 0) : (previous?.size ?? next?.size ?? 0);
   const signal = sessionFileSignal({
@@ -157,12 +160,34 @@ function observeLivePath(agent, candidate) {
         liveFiles.delete(candidate);
         liveFileSizes.delete(candidate);
       }
+      claudeToolTracker.remove(candidate);
       return;
     }
     if (candidate && next != null) {
       liveFiles.set(candidate, agent);
       liveFileSizes.set(candidate, next);
     }
+    if (!decision.emit) return;
+    emitLiveSignal(agent, candidate, previous, next);
+    return;
+  }
+  if (agent === 'Cursor') {
+    if (!next) {
+      liveFiles.delete(candidate);
+      liveFileSizes.delete(candidate);
+      cursorLiveCarries.delete(candidate);
+      return;
+    }
+    let transcriptHasAgentTurn = false;
+    const grew = !previous ? next.size > 0 : next.size > previous.size;
+    if (grew && isCursorTranscriptPath(candidate)) {
+      const parsed = readAppendedJsonlRows(candidate, previous?.size ?? 0, cursorLiveCarries.get(candidate) || '');
+      cursorLiveCarries.set(candidate, parsed.carry);
+      transcriptHasAgentTurn = cursorTranscriptHasAgentTurn(parsed.rows);
+    }
+    const decision = cursorLiveDecision(candidate, previous, next, { transcriptHasAgentTurn });
+    liveFiles.set(candidate, agent);
+    liveFileSizes.set(candidate, next);
     if (!decision.emit) return;
     emitLiveSignal(agent, candidate, previous, next);
     return;
@@ -178,11 +203,7 @@ function observeLivePath(agent, candidate) {
 
 function recordLiveActivity(agent, source, filename) {
   const candidate = filename ? path.resolve(source, String(filename)) : null;
-  if (!candidate) {
-    if (agent === 'Claude') return;
-    emitLiveSignal(agent, null, null, null);
-    return;
-  }
+  if (!candidate) return;
   observeLivePath(agent, candidate);
 }
 function pollLiveFiles() { for (const [file, agent] of liveFiles) observeLivePath(agent, file); }
@@ -230,7 +251,8 @@ function availableAgentNames() {
 }
 function liveState() {
   const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity });
-  snapshot.operator = buildOperator(index(), liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(), attentionSignals: Object.fromEntries(attentionSignals) });
+  const claudeInProgress = claudeToolTracker.signal();
+  snapshot.operator = buildOperator(index(), liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: claudeInProgress ? { Claude: claudeInProgress } : {} });
   snapshot.agents = detectAgents();
   return snapshot;
 }

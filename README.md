@@ -77,7 +77,7 @@ Installation, historical use, active work, and connected status remain separate.
 | --- | --- | --- | --- | --- | --- |
 | Claude Code | Supported | Validated JSONL growth | Supported where local fields exist | Optional documented local capacity status | Status/config touches never create live activity. |
 | Codex CLI | Supported | Supported local session activity | Supported where local fields exist | Native local plan windows where exposed | Host and model remain separate. |
-| Cursor | Supported | Supported WAL/agent-tools signal | Exact, Estimated, Mixed, or Unavailable local evidence | Capacity unavailable | No browser/account scraping. |
+| Cursor | Supported | Supported structural agent-tool/transcript growth | Exact, Estimated, Mixed, or Unavailable local evidence | Capacity unavailable | App startup, editor storage, and WAL housekeeping are not AI activity; no browser/account scraping. |
 | Antigravity | Closed-app/CLI/root detection | Unavailable without validated work evidence | Optional documented local status-line snapshot | Optional quota bucket snapshot | Presence is not history or live work. |
 | OpenRouter | Explicit Connected Service | Not a live agent | Provider-reported aggregate usage/models | Exact reported cost/credits where exposed | Disabled by default; project attribution stays Unknown without deterministic linkage. |
 | Git | Project discovery | — | Descriptive repository activity | — | Not a productivity score. |
@@ -102,7 +102,7 @@ Antigravity can be found while closed from safe local installation evidence. Its
 
 ### Token Activity
 
-The Token Activity meter is an adaptive **visual aid**. Its intensity uses Fresh + Output, while Cache Read, Cache Creation, and Observed token activity remain visible separately. Comparable completed local-day windows establish a recent P95 heavy range and a retained lifetime high, so ordinary activity does not permanently look maxed out. It never changes underlying totals, evidence labels, billing, or subscription usage. See [metrics](docs/METRICS.md#adaptive-token-activity-intensity).
+The Token Activity meter is an adaptive **visual aid**. Its intensity uses Fresh + Output, while Cache Read, Cache Creation, and Observed token activity remain visible separately. Contributor bars are true selected-range observed-token shares, not intensity bars. Comparable completed local-day windows establish a recent P95 heavy range and a retained lifetime high, so ordinary activity does not permanently look maxed out. It never changes underlying totals, evidence labels, billing, or subscription usage. See [metrics](docs/METRICS.md#adaptive-token-activity-intensity).
 
 ### Appearance
 

@@ -19,10 +19,19 @@ export function isDashboardGeneratedClaudePath(file) {
 export function isCursorLivePath(file) {
   const normal = normalizeLivePath(file);
   if (!normal || IGNORED.test(normal)) return false;
-  if (/\/state\.vscdb(?:-wal)?$/i.test(normal)) return true;
   if (/\/agent-transcripts\//i.test(normal) && /\.(jsonl|json)$/i.test(normal)) return true;
   if (/\/agent-tools\//i.test(normal) && !normal.endsWith('/')) return true;
   return false;
+}
+
+export function isCursorTranscriptPath(file) {
+  const normal = normalizeLivePath(file);
+  return isCursorLivePath(normal) && /\/agent-transcripts\//i.test(normal) && /\.jsonl$/i.test(normal);
+}
+
+export function isCursorAgentToolPath(file) {
+  const normal = normalizeLivePath(file);
+  return isCursorLivePath(normal) && /\/agent-tools\//i.test(normal) && !normal.endsWith('/');
 }
 
 export function isClaudeLivePath(file) {
@@ -50,6 +59,16 @@ export function claudeLiveDecision(file, previous, next) {
   if (!previous) return { emit: next.size > 0, keep: true, reason: next.size > 0 ? 'new-session-file' : 'empty-new-file' };
   if (next.size > previous.size) return { emit: true, keep: true, reason: 'session-growth' };
   return { emit: false, keep: true, reason: 'no-growth' };
+}
+
+export function cursorLiveDecision(file, previous, next, { transcriptHasAgentTurn = false } = {}) {
+  if (!file || !isCursorLivePath(file)) return { emit: false, keep: Boolean(next), reason: 'excluded-path' };
+  if (!next) return { emit: false, keep: false, reason: 'missing-file' };
+  const grew = !previous ? next.size > 0 : next.size > previous.size;
+  if (!grew) return { emit: false, keep: true, reason: 'no-size-growth' };
+  if (isCursorAgentToolPath(file)) return { emit: true, keep: true, reason: 'agent-tool-growth' };
+  if (isCursorTranscriptPath(file) && transcriptHasAgentTurn) return { emit: true, keep: true, reason: 'agent-transcript-turn' };
+  return { emit: false, keep: true, reason: 'non-agent-transcript-update' };
 }
 
 export function cursorStorageRoot(homeDir, platform = process.platform) {

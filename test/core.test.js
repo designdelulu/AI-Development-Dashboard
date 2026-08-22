@@ -15,7 +15,7 @@ import { normalizeCapacity, readPlanCapacity } from '../src/capacity.js';
 import { resolveProjectRoots } from '../src/config.js';
 import { lastSessionForProject, observedContext, projectHandoff, rankResumeCandidates, startHereRecommendation } from '../src/resume.js';
 import { openAgentCommand } from '../src/open-agent.js';
-import { claudeLiveDecision, isClaudeLivePath, isCursorLivePath, isDashboardGeneratedClaudePath } from '../src/live-files.js';
+import { claudeLiveDecision, cursorLiveDecision, isClaudeLivePath, isCursorLivePath, isDashboardGeneratedClaudePath } from '../src/live-files.js';
 import { structuredAttentionFromRows } from '../src/live-attention.js';
 import { resumeContextPresentation } from '../public/resume-ui.js';
 import { inferAgentFromModel, inferProvider, sessionIdentity, emptyHarnessRun, harnessWorker } from '../src/identity.js';
@@ -42,6 +42,7 @@ test('share experience has no manual preview button and exposes automatic story 
 test('agent mark scaling is proportional, deterministic, and preserves zero without changing snapshots',()=>{const small=agentMarkScale(8,60),large=agentMarkScale(60,60);assert.equal(agentMarkScale(0,60),0);assert.equal(agentMarkScale(8,60),small);assert.ok(large>small);const snapshot=Object.freeze({metrics:[Object.freeze({id:'agentSplit',label:'Agent session split',family:'agents',available:true,value:Object.freeze([{agent:'Claude',sessions:60},{agent:'Cursor',sessions:0}])})],period:{title:'TODAY',id:'today'},format:'1:1'}),before=JSON.stringify(snapshot);shareCardSvg(snapshot);assert.equal(JSON.stringify(snapshot),before);});
 test('share cards embed verified local agent assets without changing snapshot values',()=>{for(const [agent,asset]of Object.entries(AGENT_ASSETS)){assert.ok(fs.existsSync(path.join(process.cwd(),'public','assets','agents',asset.filename)));assert.match(agentAsset(agent),/^data:image\/png;base64,/);}const snapshot=Object.freeze({metrics:[Object.freeze({id:'agentSplit',label:'Agent session split',family:'agents',available:true,value:Object.freeze([{agent:'Claude',sessions:6},{agent:'Codex',sessions:3},{agent:'Cursor',sessions:0}])})],period:{title:'TODAY',id:'today'},format:'1:1',story:{selected:'agents',rankings:{agents:[{agent:'Claude',sessions:6},{agent:'Codex',sessions:3},{agent:'Cursor',sessions:0}]}}}),before=JSON.stringify(snapshot),svg=shareCardSvg(snapshot);assert.equal((svg.match(/data:image\/png;base64/g)||[]).length,3);assert.match(svg,/#1/);assert.equal(JSON.stringify(snapshot),before);});
 test('agent ranking keeps every known agent recognisable without ranking a zero as activity',()=>{const snapshot={metrics:[{id:'agentSplit',label:'Agent session split',family:'agents',available:true,value:[{agent:'Claude',sessions:6},{agent:'Codex',sessions:3},{agent:'Cursor',sessions:0}]}],period:{title:'TODAY',id:'today'},format:'1:1',story:{selected:'agents'}};const svg=shareCardSvg(snapshot);assert.match(svg,/>#1</);assert.match(svg,/>#2</);assert.doesNotMatch(svg,/>#3</);assert.match(svg,/Cursor/);assert.match(svg,/No observed sessions this period/);});
+test('Share Stats agent bars use the displayed total session share rather than normalizing the leader',()=>{const snapshot={metrics:[{id:'agentSplit',label:'Agent session split',family:'agents',available:true,value:[{agent:'Codex',sessions:66},{agent:'Claude',sessions:34}]}],period:{title:'TODAY',id:'today'},format:'16:9',story:{selected:'agents'}},svg=shareCardSvg(snapshot);assert.match(svg,/>66%</);assert.match(svg,/>34%</);assert.match(svg,/width="1052\.04" height="12"/);assert.match(svg,/width="541\.96" height="12"/);});
 test('share snapshot carries a deterministic multi-slide story foundation',()=>{const recap={id:'month',rankings:{agents:[{agent:'Claude',sessions:1}],capabilities:[]},achievements:[]},metrics=[{id:'sessions',family:'activity'},{id:'agentSplit',family:'agents'},{id:'freshInput',family:'tokens'}],cards=storyCardsFor(recap,metrics);assert.deepEqual(cards.map(card=>card.id),['intro','agents','activity','tokens']);const dir=fs.mkdtempSync(path.join(os.tmpdir(),'story-')),now=new Date(),index={summary:{agents:['Claude']},sessions:[{agent:'Claude',timestamp:now.toISOString(),tokens:{freshInput:4}}],efficiency:{components:{}},capabilityUsageEvents:[]},snapshot=createSnapshot(index,['sessions','agentSplit','freshInput'],'1:1',dir,'month',{slide:'agents'});assert.equal(snapshot.story.version,2);assert.equal(snapshot.story.selected,'agents');assert.ok(snapshot.story.cards.some(card=>card.id==='agents'));});
 test('desktop share workspace declares an intentional large-screen layout tier',()=>{const styles=fs.readFileSync(path.join(process.cwd(),'public','overrides.css'),'utf8');assert.match(styles,/@media\(min-width:1200px\)/);assert.match(styles,/grid-template-columns:350px minmax\(0,1fr\)/);assert.match(styles,/width:min\(1340px/);});
 test('separates capability type, scope, completeness and agent coverage',()=>{const raw=[{id:'skill',name:'Impeccable',type:'Agent Skill',origin:'Project',projectId:'project:design',location:'/Users/x/Dropbox/Projects/design/.claude/skills/impeccable/SKILL.md',isPrivate:false},{id:'instruction',name:'CLAUDE',type:'Instruction',origin:'Project',projectId:'project:design',location:'/Users/x/Dropbox/Projects/design/CLAUDE.md',isPrivate:false},{id:'plugin',name:'Caveman',type:'Agent Skill',origin:'Claude plugin',location:'/Users/x/.claude/plugins/cache/caveman/a/skills/caveman/SKILL.md',isPrivate:false}];const groups=groupCapabilities(raw,[]),skill=groups.find(x=>x.name==='Impeccable'),instruction=groups.find(x=>x.name==='CLAUDE'),plugin=groups.find(x=>x.name==='Caveman');assert.equal(skill.type,'Skills');assert.equal(skill.scope,'Project-specific');assert.equal(skill.artifactState,'Complete');assert.equal(instruction.type,'Instructions');assert.equal(instruction.scope,'Project-specific');assert.equal(plugin.type,'Tools');assert.equal(plugin.artifactState,'Unknown');assert.equal(plugin.artifactState==='Partial',false);assert.equal(skill.agentCoverage.find(x=>x.agent==='Claude').state,'Installed');});
@@ -168,17 +169,21 @@ test('achievement badges map to sliced PNG artwork families',()=>{
   assert.match(multi.badge.assetSlot,/assets\/achievements\/multi-agent-mastery\/bronze\.png/);
   assert.equal(fs.existsSync(path.join(process.cwd(),'public',multi.badge.assetSlot)),true);
 });
-test('cursor live allowlist accepts WAL and agent-tools mtime and ignores MCP JSON',()=>{
-  assert.equal(isCursorLivePath('/Users/x/Library/Application Support/Cursor/User/globalStorage/state.vscdb-wal'),true);
-  assert.equal(isCursorLivePath('/Users/x/.cursor/projects/foo/agent-tools/call.json'),true);
-  assert.equal(isCursorLivePath('/Users/x/.cursor/projects/foo/agent-transcripts/session.jsonl'),true);
+test('cursor live allowlist rejects storage housekeeping and requires growing agent evidence',()=>{
+  const wal='/Users/x/Library/Application Support/Cursor/User/globalStorage/state.vscdb-wal';
+  const tool='/Users/x/.cursor/projects/foo/agent-tools/call.json';
+  const transcript='/Users/x/.cursor/projects/foo/agent-transcripts/session.jsonl';
+  assert.equal(isCursorLivePath(wal),false);
+  assert.equal(isCursorLivePath(tool),true);
+  assert.equal(isCursorLivePath(transcript),true);
   assert.equal(isCursorLivePath('/Users/x/.cursor/projects/foo/mcps/config.json'),false);
   assert.equal(isCursorLivePath('/Users/x/.cursor/projects/foo/canvases/board.json'),false);
   const source=fs.readFileSync(path.join(process.cwd(),'src','cli.js'),'utf8')+fs.readFileSync(path.join(process.cwd(),'src','live-files.js'),'utf8');
   assert.doesNotMatch(source,/better-sqlite|sql\.js|sqlite3|new Database/i);
-  const wal=sessionFileSignal({agent:'Cursor',timestamp:1_000_000,previousSize:4096,size:4096});
-  assert.equal(wal.bytesAdded,0);
-  assert.ok(activityEventWeight(wal)>=1);
+  assert.equal(cursorLiveDecision(tool,{size:10,mtimeMs:1},{size:10,mtimeMs:99}).emit,false);
+  assert.equal(cursorLiveDecision(tool,{size:10,mtimeMs:1},{size:20,mtimeMs:2}).emit,true);
+  assert.equal(cursorLiveDecision(transcript,{size:10,mtimeMs:1},{size:98,mtimeMs:2},{transcriptHasAgentTurn:false}).emit,false);
+  assert.equal(cursorLiveDecision(transcript,{size:98,mtimeMs:1},{size:180,mtimeMs:2},{transcriptHasAgentTurn:true}).emit,true);
 });
 test('claude live activity ignores dashboard-generated files and mtime-only touches',()=>{
   const session='/Users/x/.claude/projects/proj/aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee.jsonl';
