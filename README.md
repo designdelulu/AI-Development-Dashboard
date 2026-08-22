@@ -41,6 +41,17 @@ If `~/Dropbox/Projects` or `~/Projects` already exists, it is detected. Otherwis
 
 `npm run scan` builds the index without serving. `npm test` runs the deterministic suite.
 
+The repository command is also package-ready:
+
+```bash
+npm run dashboard -- open
+npm run dashboard -- status
+npm run dashboard -- stop
+npm run dashboard -- doctor
+```
+
+`setup` opens the same local onboarding flow; `update`, `uninstall`, and `autostart` are safe Phase 1 previews only. No package is published and start-at-login remains off.
+
 ## What it does
 
 ### Overview
@@ -86,13 +97,13 @@ No network request is made by the scanner or server. `.dashboard-data/` is local
 | --- | --- | --- |
 | Claude Code | Session metadata, supported token fields, structured skill attribution, live session-file activity | No supported local subscription percentage. A Kimi/DeepSeek model ID in those files is recorded as a different provider/model, not collapsed into “Claude tokens.” |
 | Codex CLI | Session metadata, working-directory attribution, native weekly remaining %, live session-file activity | Token categories depend on what local records expose. |
-| Cursor | Safe session presence, encoded project attribution, live WAL/`agent-tools` mtime | Local token telemetry unavailable. Cursor still tracks usage in its own account dashboard. Transcript files are often empty while an agent is working. |
+| Cursor | Safe session presence, encoded project attribution, live WAL/`agent-tools` mtime, local token evidence when safe fields exist | Exact, Estimated, Mixed, or Unavailable depending on the local record. Cursor still tracks usage in its own account dashboard. Transcript files are often empty while an agent is working. |
 | Git | Repository identity and descriptive change activity | LOC and churn are descriptive, not productivity scores. |
 | VS Code | Installed AI-related extensions only | Not counted as AI activity. |
 
 ## Limitations
 
-Not reliable yet: Cursor **local** token telemetry, completed-task attribution, accepted changes, rework/reverts, Claude/Cursor plan remaining, third-party update availability, automated capability modification, and API cost as a stand-in for subscription savings.
+Not reliable yet: completed-task attribution, accepted changes, rework/reverts, Claude/Cursor plan remaining, third-party update availability, automated capability modification, and API cost as a stand-in for subscription savings. Cursor local token evidence is supported only when its safe local records expose it and is always labelled Exact, Estimated, Mixed, or Unavailable.
 
 Orchestration of multiple workers is **not** this product’s runtime. The index can represent a harness run so a future adapter can feed telemetry. See [docs/ORCHESTRATION.md](docs/ORCHESTRATION.md).
 
