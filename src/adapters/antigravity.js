@@ -4,6 +4,7 @@ import { antigravityCapacity, antigravityCaptureConfigured, normalizeAntigravity
 export const manifest = {
   id: 'antigravity', contractVersion: ADAPTER_CONTRACT_VERSION, adapterVersion: 1,
   displayName: 'Antigravity', kind: 'optional-local-integration', risk: 'local-read',
+  runtime: { sourceKey: 'Antigravity', agent: 'Antigravity', host: 'Antigravity' },
   capabilities: { discover: 'local', history: 'unsupported', live: 'unsupported', tokens: 'exact', capacity: 'partial', models: 'exact', projects: 'partial', health: true }
 };
 

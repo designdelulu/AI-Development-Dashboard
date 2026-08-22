@@ -1,7 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { CAPACITY_SOURCES } from './brands.js';
 import { claudeCapacityFromState, installedClaudeVersion, readUsageState } from './claude-capacity.js';
 import { antigravityCapacity } from './antigravity.js';
 
@@ -12,16 +11,25 @@ export function normalizeCapacity(provider, raw, observedAt=null) { if(!raw||pro
 function collect(root,depth=0,out=[]) { if(depth>5)return out;let entries=[];try{entries=fs.readdirSync(root,{withFileTypes:true});}catch{return out;}for(const entry of entries){const file=path.join(root,entry.name);if(entry.isDirectory())collect(file,depth+1,out);else if(entry.name.endsWith('.jsonl'))try{const stat=fs.statSync(file);out.push({file,mtimeMs:stat.mtimeMs,size:stat.size});}catch{}}return out; }
 function findRateLimits(value) { if(!value||typeof value!=='object')return null;if(value.rate_limits&&typeof value.rate_limits==='object')return value.rate_limits;for(const child of Object.values(value)){const found=findRateLimits(child);if(found)return found;}return null; }
 function latestCodexCapacity(root) { const files=collect(root).sort((a,b)=>b.mtimeMs-a.mtimeMs).slice(0,20);let latest=null;for(const {file,size}of files){try{const length=Math.min(size,512*1024),buffer=Buffer.alloc(length),fd=fs.openSync(file,'r');fs.readSync(fd,buffer,0,length,size-length);fs.closeSync(fd);let text=buffer.toString('utf8');if(size>length)text=text.slice(text.indexOf('\n')+1);for(const line of text.split('\n')){if(!line.includes('rate_limits'))continue;try{const row=JSON.parse(line),raw=findRateLimits(row);if(!raw)continue;const observedAt=iso(row.timestamp)||new Date().toISOString();if(!latest||observedAt>latest.observedAt)latest={raw,observedAt};}catch{}}}catch{}}return latest; }
-export function readPlanCapacity(homeDir=os.homedir(), { antigravityCliPresent = null } = {}) {
-  const codex=latestCodexCapacity(path.join(homeDir,'.codex','sessions'));
-  const claude=claudeCapacityFromState(readUsageState(homeDir),{version:installedClaudeVersion(homeDir)});
-  const antigravity = antigravityCapacity(homeDir, { cliPresent: antigravityCliPresent == null ? (() => { try { return fs.existsSync(path.join(homeDir, '.gemini', 'antigravity-cli', 'bin', 'agy')); } catch { return false; } })() : antigravityCliPresent });
-  const byId={
-    Claude:claude,
-    Codex:codex?normalizeCapacity('Codex',codex.raw,codex.observedAt):unavailable('Codex'),
-    Cursor:unavailable('Cursor'),
-    'Antigravity quota':antigravity
-  };
-  const ordered = [...CAPACITY_SOURCES.map(source=>byId[source.id]||unavailable(source.id)), ...(antigravity.status === 'Unavailable' && antigravity.health === 'unsupported' ? [] : [antigravity])];
-  return {providers:ordered,sampledAt:new Date().toISOString(),privacy:'Uses native local metadata only; no credentials, cookies, browser DOM, provider API calls, or interactive quota commands. Capacity is account/bucket telemetry, not a per-model card. Claude remaining percent is 100 minus statusline used_percentage.'};
+// Capacity sources are registered independently from models. A future adapter
+// can add one descriptor without a dashboard-card branch or a model-specific
+// quota claim.
+export const capacitySourceRegistry = Object.freeze([
+  { id: 'Claude', collect: ({ homeDir }) => claudeCapacityFromState(readUsageState(homeDir), { version: installedClaudeVersion(homeDir) }) },
+  { id: 'Codex', collect: ({ homeDir }) => { const codex = latestCodexCapacity(path.join(homeDir, '.codex', 'sessions')); return codex ? normalizeCapacity('Codex', codex.raw, codex.observedAt) : unavailable('Codex'); } },
+  { id: 'Cursor', collect: () => unavailable('Cursor') },
+  {
+    id: 'Antigravity quota', optionalWhenUnsupported: true,
+    collect: ({ homeDir, antigravityCliPresent }) => antigravityCapacity(homeDir, { cliPresent: antigravityCliPresent })
+  }
+]);
+
+export function readPlanCapacity(homeDir=os.homedir(), { antigravityCliPresent = null, sources = capacitySourceRegistry, now = () => new Date() } = {}) {
+  const cliPresent = antigravityCliPresent == null ? (() => { try { return fs.existsSync(path.join(homeDir, '.gemini', 'antigravity-cli', 'bin', 'agy')); } catch { return false; } })() : antigravityCliPresent;
+  const providers = sources.flatMap((source) => {
+    const value = source.collect?.({ homeDir, antigravityCliPresent: cliPresent }) || unavailable(source.id);
+    if (source.optionalWhenUnsupported && value.status === 'Unavailable' && value.health === 'unsupported') return [];
+    return [value];
+  });
+  return {providers,sampledAt:new Date(now()).toISOString(),privacy:'Uses native local metadata only; no credentials, cookies, browser DOM, provider API calls, or interactive quota commands. Capacity is account/bucket telemetry, not a per-model card. Claude remaining percent is 100 minus statusline used_percentage.'};
 }

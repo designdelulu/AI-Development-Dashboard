@@ -1,4 +1,4 @@
-import { brandOf, ADAPTER_AGENTS, CAPACITY_SOURCES } from './brands.js';
+import { brandOf } from './brands.js';
 
 const fmt = (n) => new Intl.NumberFormat().format(n || 0);
 const short = (n, evidence) => {
@@ -23,53 +23,23 @@ export function glyph(agent, size = '') {
   return `<span class="agent-glyph fallback ${size}" aria-hidden="true">${esc(brand.letter)}</span>`;
 }
 
-export function liveLanes(events = [], sessions = [], { now = Date.now(), adapters = ADAPTER_AGENTS } = {}) {
+export function liveLanes(events = [], sessions = [], { now = Date.now(), runtimes = [] } = {}) {
   void now;
-  const hostFor = { Claude: 'Claude Code', Codex: 'Codex CLI', Cursor: 'Cursor' };
   const newest = [...sessions].sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
-  const latestByHost = new Map();
-  for (const session of newest) {
-    const host = session.host || hostFor[session.agent] || session.agent;
-    if (host && !latestByHost.has(host)) latestByHost.set(host, session);
-  }
   const lanes = [];
-  const seen = new Set();
-  for (const adapter of adapters) {
-    const host = hostFor[adapter] || adapter;
-    const recent = latestByHost.get(host);
-    const agent = recent?.agent || adapter;
+  for (const runtime of runtimes.filter((item) => item?.liveCapable)) {
+    const recent = newest.find((session) => session.adapterId === runtime.id) || newest.find((session) => session.host && session.host === runtime.host) || null;
     lanes.push({
-      id: agent,
-      adapter,
-      eventAgent: adapter,
-      host: recent?.host || host,
-      agent,
+      id: runtime.id,
+      adapter: runtime.id,
+      eventAgent: runtime.agent,
+      host: runtime.host,
+      agent: runtime.agent,
       model: recent?.model || null,
       modelLabel: recent?.modelLabel || recent?.model || null,
-      provider: recent?.provider || null
+      provider: recent?.provider || null,
+      harness: recent?.harness || runtime.harness || null
     });
-    seen.add(agent);
-    seen.add(adapter);
-  }
-  const extras = [];
-  for (const event of events) if (event.agent && !seen.has(event.agent)) extras.push(event.agent);
-  for (const session of newest) {
-    const host = session.host || hostFor[session.agent] || session.agent;
-    if (session.agent && !seen.has(session.agent) && !Object.values(hostFor).includes(host)) extras.push(session.agent);
-  }
-  for (const agent of [...new Set(extras)]) {
-    const recent = newest.find((session) => session.agent === agent) || events.find((event) => event.agent === agent) || {};
-    lanes.push({
-      id: agent,
-      adapter: null,
-      eventAgent: agent,
-      host: recent.host || agent,
-      agent,
-      model: recent.model || null,
-      modelLabel: recent.modelLabel || recent.model || null,
-      provider: recent.provider || null
-    });
-    seen.add(agent);
   }
   return lanes;
 }
@@ -87,8 +57,7 @@ export function tokenBarRows(contributions = []) {
   return contributions.map((row) => {
     const name = row.agent || row.provider || row.model;
     if (!row.available) {
-      const source = CAPACITY_SOURCES.find((item) => item.id === name);
-      const action = row.action?.href ? row.action : (source?.href ? { href: source.href, label: source.action } : null);
+      const action = row.action?.href ? row.action : null;
       const link = action?.href ? `<a href="${esc(action.href)}" target="_blank" rel="noreferrer">${esc(action.label || 'View usage')}</a>` : '';
       return `<div class="token-agent is-unavailable">${glyph(name)}<div><strong>${esc(name)}</strong><small>${esc(row.reason || 'Local token telemetry unavailable')}</small></div><b>${link || 'Local token telemetry unavailable'}</b></div>`;
     }

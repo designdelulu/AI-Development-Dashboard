@@ -62,13 +62,11 @@ Starts the service but does not require a browser. It writes an atomic runtime r
 
 Shows version, service state, URL/port, process age, scan state, configured roots, data location, start-at-login state, adapter health counts, and last error. It never prints credentials or private project names in default text output.
 
-### `ai-dashboard update [--check]`
+### `ai-dashboard update`
 
-- `--check` performs a package-release metadata check only after confirmation/permission;
-- update previews current/latest version, source, release link, expected restart, and command;
-- npm distribution delegates to npm; standalone distribution uses signed release artifacts;
-- service stops gracefully, package updates, migration dry-check runs, service returns only if it was previously running;
-- failed verification leaves the previous version or clear recovery instructions.
+Implemented first mode: a linked local Git checkout. The command identifies the checkout from its own executable, refuses a dirty, detached, remote-less, or diverged branch, explicitly fetches `origin`, and accepts only a fast-forward update. It does not reset, force-check out, automatically stash, remove files, or modify `.dashboard-data`. If the owned service was running, it stops and restarts only that verified service after the update succeeds.
+
+Future npm-global and standalone modes remain explicit unsupported-mode messages until their package-manager/signed-artifact update paths are reviewed. No check runs at startup, and the command updates the dashboard only—not tools, models, skills, plugins, or capabilities.
 
 Dashboard updates are separate from capability/skill updates.
 
@@ -101,7 +99,7 @@ The current server boundary in `src/cli.js` should be split into lifecycle/proce
 
 ## Start at login
 
-Start at login is off by default and offered at the end of onboarding.
+Start at login is off by default. The current implementation has only safe per-platform plan previews; no toggle is exposed until owned install/remove operations are reviewed and implemented.
 
 | Platform | Method | Behavior |
 | --- | --- | --- |

@@ -10,7 +10,6 @@ import { claudeLiveDecision, isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
 import { loadSettings, saveSettings } from './config.js';
 import { releaseInfo } from './release.js';
-import { ADAPTER_AGENTS } from './brands.js';
 import { tokenReportFromCalendar } from './tokens.js';
 import { buildOperator, lastSessionForProject, liveStatesFromEvents, projectHandoff, recentCapabilitiesForProject } from './resume.js';
 import { detectAgents, launchAgent, openAgentCommand } from './open-agent.js';
@@ -19,6 +18,9 @@ import { doctor } from './lifecycle/doctor.js';
 import { runtimeToken, removeRuntime, writeRuntime } from './lifecycle/runtime-record.js';
 import { autostartPlan } from './lifecycle/autostart.js';
 import { serviceStatus, startService, stopService } from './lifecycle/service.js';
+import { createRediscoveryScheduler } from './rediscovery.js';
+import { installMode, updateGitCheckout } from './lifecycle/update.js';
+import { mergeObservedIdentities } from './runtime-registry.js';
 import { validateProjectRoots } from './onboarding.js';
 import { createOpenRouterService } from './openrouter/service.js';
 import { disableAntigravityCapture, enableAntigravityCapture, previewAntigravityCapture } from './antigravity.js';
@@ -46,7 +48,8 @@ function loadHandoffs() {
 }
 function recordHandoff(entry) { fs.mkdirSync(dataDir, { recursive: true }); fs.appendFileSync(handoffFile, `${JSON.stringify(entry)}\n`); }
 function decorate(result) {
-  const withMeta = applyProjectMetadata(result, projectMetadata());
+  const identities = mergeObservedIdentities(result.observedIdentities || [], openRouter.state().cached?.models || []);
+  const withMeta = applyProjectMetadata({ ...result, observedIdentities: identities }, projectMetadata());
   const handoffs = loadHandoffs();
   const metadata = beginComparisonTracking(loadEfficiencyMetadata(dataDir));
   if (metadata.comparison.instrumentationStartedAt) saveEfficiencyMetadata(dataDir, metadata);
@@ -63,6 +66,10 @@ function refresh(reason = 'manual') {
   const previous = liveIndex || (fs.existsSync(indexFile) ? JSON.parse(fs.readFileSync(indexFile, 'utf8')) : null);
   const result = scan(currentSources(), previous);
   result.summary.refreshReason = reason;
+  // Persist safe connected-service model identities alongside local identities.
+  // The cached aggregate is already local; this makes first/last-seen model
+  // history survive service restarts without correlating it to a local agent.
+  result.observedIdentities = mergeObservedIdentities(result.observedIdentities || [], openRouter.state().cached?.models || []);
   fs.writeFileSync(indexFile, JSON.stringify(result, null, 2));
   liveIndex = decorate(result);
   refreshing = false;
@@ -192,16 +199,16 @@ function sourceWatchList(sources) {
   }
   return list;
 }
-function watchSources() {
+function watchSources(rediscovery) {
   const sources = currentSources();
   let timer;
   const ignored = /(^|[\\/])(\.dashboard-data|\.git|node_modules|canvases|mcps|ai-dashboard)([\\/]|$)/;
   const changed = (agent, source, filename) => {
     const candidate = filename ? path.resolve(source, String(filename)) : '';
     if ((candidate && (candidate === dataDir || candidate.startsWith(`${dataDir}${path.sep}`))) || ignored.test(candidate)) return;
-    if (agent) { recordLiveActivity(agent, source, filename); return; }
+    if (agent) recordLiveActivity(agent, source, filename);
     clearTimeout(timer);
-    timer = setTimeout(() => refresh('project source change'), 7_500);
+    timer = setTimeout(() => rediscovery.trigger(agent ? 'adapter source change' : 'project source change'), 25);
   };
   for (const [, source, agent] of sourceWatchList(sources)) {
     const attach = (options) => {
@@ -214,16 +221,16 @@ function watchSources() {
     try { attach({ recursive: true }); }
     catch { try { attach({}); } catch {} }
   }
-  setInterval(() => refresh('periodic check'), 300000).unref();
 }
 function availableAgentNames() {
   const detected = detectAgents();
-  const names = Object.entries(detected).filter(([, info]) => info?.available).map(([agent]) => agent);
-  return names.length ? names : ADAPTER_AGENTS.filter((agent) => detected[agent]);
+  const installed = Object.entries(detected).filter(([, info]) => info?.available).map(([agent]) => agent);
+  const live = index().runtimeCatalog?.liveRuntimes?.map((runtime) => runtime.agent).filter(Boolean) || [];
+  return [...new Set([...installed, ...live])];
 }
 function liveState() {
   const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity });
-  snapshot.operator = buildOperator(index(), liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames().length ? availableAgentNames() : ADAPTER_AGENTS, attentionSignals: Object.fromEntries(attentionSignals) });
+  snapshot.operator = buildOperator(index(), liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(), attentionSignals: Object.fromEntries(attentionSignals) });
   snapshot.agents = detectAgents();
   return snapshot;
 }
@@ -235,11 +242,13 @@ function json(res, value, status = 200) {
 function hasSession(req, token) { return String(req.headers.cookie || '').split(';').some((value) => value.trim() === `ai_dashboard_session=${token}`); }
 export function serve({ port = 4177 } = {}) {
   const sources = currentSources();
+  const rediscovery = createRediscoveryScheduler({ run: refresh });
   rememberLiveFiles('Claude', sources.claudeRoot);
   rememberLiveFiles('Codex', sources.codexRoot);
   rememberLiveFiles('Cursor', sources.cursorRoot);
   if (sources.cursorStorageRoot) rememberLiveFiles('Cursor', sources.cursorStorageRoot);
-  watchSources();
+  watchSources(rediscovery);
+  rediscovery.start();
   setInterval(() => { latestSystem = sampleSystem(); }, 2_000).unref();
   setInterval(pollLiveFiles, 1_500).unref();
   setInterval(() => { latestCapacity = readPlanCapacity(); }, 60_000).unref();
@@ -264,11 +273,11 @@ export function serve({ port = 4177 } = {}) {
     if (url.pathname === '/api/efficiency' && req.method === 'GET') return json(res, efficiencySnapshot(index().efficiency?.foundation || {}, { period: url.searchParams.get('period') || '7d', remoteAnalytics: openRouter.state().cached }));
     if (url.pathname === '/api/openrouter' && req.method === 'GET') return json(res, openRouter.state());
     if (url.pathname === '/api/openrouter/connect' && req.method === 'POST') {
-      try { return json(res, await openRouter.connect({ period: (await body(req)).period || 'today' })); }
+      try { const state = await openRouter.connect({ period: (await body(req)).period || 'today' }); refresh('openrouter sync'); return json(res, state); }
       catch (error) { return json(res, { ...openRouter.state(), error: error?.code || 'connector-error' }, 400); }
     }
     if (url.pathname === '/api/openrouter/sync' && req.method === 'POST') {
-      try { return json(res, await openRouter.sync({ period: (await body(req)).period || 'today' })); }
+      try { const state = await openRouter.sync({ period: (await body(req)).period || 'today' }); refresh('openrouter sync'); return json(res, state); }
       catch (error) { return json(res, { ...openRouter.state(), error: error?.code || 'connector-error' }, 400); }
     }
     if (url.pathname === '/api/openrouter/disconnect' && req.method === 'POST') return json(res, openRouter.disconnect());
@@ -412,10 +421,10 @@ export function serve({ port = 4177 } = {}) {
     localOrigin = url;
     writeRuntime(paths.runtimeFile, { version: 1, pid: process.pid, script: path.resolve(process.argv[1]), startedAt: new Date().toISOString(), url, port: actualPort, instanceId, controlToken, dataDir });
     console.log(`AI Development Dashboard → ${url}`);
-    // Bind and become healthy before a potentially large first local scan. A
-    // cached index is served immediately; a clean install still scans on its
-    // first data request or this queued startup refresh.
-    setTimeout(() => refresh('startup'), 500).unref();
+    // A prior index is only a cache. Bind first so `open` remains responsive,
+    // then always perform the bounded local discovery pass without any network
+    // access. The periodic fallback and adapter-root watchers stay active.
+    setTimeout(() => rediscovery.startup(), 0).unref();
   });
   return server;
 }
@@ -450,7 +459,30 @@ export async function main(args = process.argv.slice(2)) {
     console.log(`Dashboard setup is ready at ${status.runtime.url}`); return 0;
   }
   if (command === 'autostart') { const plan = autostartPlan({ command: 'ai-dashboard', dataDir }); console.log(JSON.stringify({ ...plan, state: 'disabled', note: 'Autostart is opt-in. This Phase 1 command previews the per-user plan only.' }, null, 2)); return 0; }
-  if (command === 'update') { console.log('Update checks are disabled by default. No network request was made.'); return 0; }
+  if (command === 'update') {
+    // This is an explicit dashboard-software update command. It is never used
+    // during startup/discovery and it never updates agents, models, skills, or
+    // connected services.
+    const before = await serviceStatus(paths, script);
+    const result = updateGitCheckout(installMode({ script }));
+    if (!['current', 'updated'].includes(result.state)) { console.error(result.message || 'Dashboard update was not performed.'); return 1; }
+    if (result.state === 'current') { console.log(`Already up to date. ${result.head || ''}`.trim()); return 0; }
+    if (result.dependencyManifestChanged) {
+      const lock = ['package-lock.json', 'npm-shrinkwrap.json'].find((name) => fs.existsSync(path.join(result.root, name)));
+      if (lock) {
+        try { (await import('node:child_process')).execFileSync('npm', ['ci'], { cwd: result.root, stdio: 'inherit' }); }
+        catch { console.error('Dashboard code updated, but deterministic dependency installation failed. The owned service was left unchanged.'); return 1; }
+      }
+    }
+    if (before.state === 'running') {
+      const stopped = await stopService({ paths, script });
+      if (stopped.state !== 'stopped') { console.error('Dashboard updated, but the owned service could not be stopped cleanly.'); return 1; }
+      const restarted = await startService({ paths, script, port });
+      if (restarted.state !== 'running') { console.error('Dashboard updated, but the owned service did not restart cleanly.'); return 1; }
+      console.log(`Updated successfully. Dashboard restarted. ${restarted.runtime.url}`); return 0;
+    }
+    console.log(`Updated successfully. ${result.previousHead?.slice(0, 8) || 'previous'} → ${result.head?.slice(0, 8) || 'current'}`); return 0;
+  }
   if (command === 'uninstall') { console.log(JSON.stringify({ state: 'preview', package: 'Use your npm package manager to remove the package.', retainedData: dataDir, autostart: 'No job is installed by this Phase 1 foundation.' }, null, 2)); return 0; }
   console.error('Usage: ai-dashboard [serve|scan|setup|start|open|status|stop|doctor|autostart|update|uninstall]'); return 1;
 }

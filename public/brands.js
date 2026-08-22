@@ -22,13 +22,6 @@ export const BRANDS = Object.freeze({
   Windsurf: { id: 'Windsurf', kind: 'host', file: null, color: '#6EE7B7', letter: 'W' }
 });
 
-export const ADAPTER_AGENTS = Object.freeze(['Claude', 'Codex', 'Cursor']);
-export const CAPACITY_SOURCES = Object.freeze([
-  { id: 'Claude', account: 'Claude plan', href: 'https://claude.ai/settings/usage', action: 'View Claude Usage' },
-  { id: 'Codex', account: 'Codex plan', href: null, action: null },
-  { id: 'Cursor', account: 'Cursor plan', href: 'https://cursor.com/dashboard', action: 'View Cursor Usage' }
-]);
-
 export function brandOf(name) {
   const label = String(name || '').trim();
   if (!label) return { id: 'Unknown', kind: 'unknown', file: null, color: '#FF2D78', letter: '?', label: 'Unknown', fallback: true };

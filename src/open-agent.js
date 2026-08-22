@@ -3,10 +3,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 
-import { ADAPTER_AGENTS } from './brands.js';
-
-const AGENTS = ADAPTER_AGENTS;
-
 function exists(file) {
   try { return file && fs.existsSync(file); } catch { return false; }
 }
@@ -42,7 +38,7 @@ function applescriptQuote(value) {
 }
 
 export function openAgentCommand(agent, projectPath, detected = detectAgents()) {
-  if (!AGENTS.includes(agent)) return { ok: false, agent, reason: 'Unknown agent.' };
+  if (!detected?.[agent]) return { ok: false, agent, reason: 'No launch command is registered for this agent.' };
   const resolved = path.resolve(projectPath || '');
   if (!resolved || !exists(resolved)) return { ok: false, agent, reason: 'Project path is not available on this machine.' };
   const info = detected[agent];
@@ -54,7 +50,7 @@ export function openAgentCommand(agent, projectPath, detected = detectAgents()) 
         : 'Cursor CLI is not installed. Install the Cursor shell command, then retry.';
     return { ok: false, agent, reason: how };
   }
-  if (agent === 'Cursor') {
+  if (info.kind === 'gui') {
     return { ok: true, agent, kind: 'gui', argv: [info.binary, resolved], cwd: resolved, command: info.binary };
   }
   const script = `cd ${applescriptQuote(resolved)} && exec ${applescriptQuote(info.binary)}`;

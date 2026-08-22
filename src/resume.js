@@ -1,6 +1,5 @@
 import { classifyAgentState } from '../public/agent-state.js';
 import { localDateKey } from './tokens.js';
-import { ADAPTER_AGENTS } from './brands.js';
 
 const HEADLINE = new Set(['Confirmed', 'Strongly inferred']);
 const SECRET_FILE = /(\.env(?:$|\.)|credentials|id_rsa|\.pem$|secret|token\.json|\.netrc)/i;
@@ -25,7 +24,7 @@ export function recentCapabilitiesForProject(index, projectId, limit = 4) {
   return ranked;
 }
 
-export function liveStatesFromEvents(events = [], agents = ADAPTER_AGENTS, now = Date.now(), attentionSignals = {}) {
+export function liveStatesFromEvents(events = [], agents = [], now = Date.now(), attentionSignals = {}) {
   const names = [...new Set([...(agents || []), ...events.map((event) => event.agent).filter(Boolean)])];
   return Object.fromEntries(names.map((agent) => [agent, classifyAgentState(events, agent, now, { sourceKnown: true, attention: attentionSignals[agent] || null })]));
 }
@@ -73,34 +72,36 @@ export function observedContext(card = {}, { now = Date.now() } = {}) {
   return parts.join(' ') || 'No recent observed project activity.';
 }
 
-function weeklyCodexWindow(capacity) {
-  const provider = (capacity?.providers || []).find((item) => item.provider === 'Codex' && item.status === 'Available');
-  if (!provider?.windows?.length) return null;
-  return provider.windows.find((window) => /weekly/i.test(window.label || '')) || provider.windows[0];
+function capacityWindow(capacity, providerName = null) {
+  const providers = (capacity?.providers || []).filter((item) => item.status === 'Available' && item.windows?.length);
+  const provider = providerName ? providers.find((item) => item.provider === providerName) : providers[0];
+  if (!provider) return null;
+  const window = provider.windows.find((item) => /weekly/i.test(item.label || '')) || provider.windows[0];
+  return window ? { provider: provider.provider, window } : null;
 }
 
-export function startHereRecommendation({ lastAgent = null, agentState = null, capacity = null, availableAgents = ADAPTER_AGENTS } = {}) {
-  const available = (agent) => availableAgents.includes(agent);
-  const unknownQuota = (agent) => agent === 'Claude' || agent === 'Cursor';
-  const weekly = weeklyCodexWindow(capacity);
-  const remaining = weekly && Number.isFinite(Number(weekly.remainingPercent)) ? Math.round(weekly.remainingPercent) : null;
+export function startHereRecommendation({ lastAgent = null, agentState = null, capacity = null, availableAgents = [] } = {}) {
+  const available = (agent) => !availableAgents.length || availableAgents.includes(agent);
+  const lastCapacity = capacityWindow(capacity, lastAgent);
+  const availableCapacity = capacityWindow(capacity);
+  const remaining = lastCapacity && Number.isFinite(Number(lastCapacity.window.remainingPercent)) ? Math.round(lastCapacity.window.remainingPercent) : null;
 
   if (agentState?.state === 'Needs You' && lastAgent && available(lastAgent)) {
     return { agent: lastAgent, reason: `${lastAgent} needs your attention on this project.` };
   }
-  if (lastAgent === 'Codex' && remaining != null && available('Codex')) {
-    return { agent: 'Codex', reason: `Codex was last used here and has ${remaining}% of its weekly window remaining.` };
+  if (lastAgent && remaining != null && available(lastAgent)) {
+    return { agent: lastAgent, reason: `${lastAgent} was last used here and has ${remaining}% of its ${lastCapacity.window.label.toLowerCase()} remaining.` };
   }
   if (lastAgent && available(lastAgent)) {
     let reason = `${lastAgent} was the last agent used on this project.`;
-    if (unknownQuota(lastAgent)) reason += ` ${lastAgent} plan capacity is unknown locally.`;
-    if (remaining != null && lastAgent !== 'Codex') reason += ` Codex has ${remaining}% of its weekly capacity remaining if you want to switch.`;
+    reason += ` ${lastAgent} plan capacity is unknown locally.`;
     return { agent: lastAgent, reason };
   }
-  if (remaining != null && remaining >= 40 && available('Codex')) {
-    return { agent: 'Codex', reason: `Codex has ${remaining}% of its weekly capacity remaining.` };
+  const fallbackRemaining = availableCapacity && Number.isFinite(Number(availableCapacity.window.remainingPercent)) ? Math.round(availableCapacity.window.remainingPercent) : null;
+  if (availableCapacity && fallbackRemaining != null && fallbackRemaining >= 40 && available(availableCapacity.provider)) {
+    return { agent: availableCapacity.provider, reason: `${availableCapacity.provider} has ${fallbackRemaining}% of its ${availableCapacity.window.label.toLowerCase()} remaining.` };
   }
-  const fallback = availableAgents[0] || 'Claude';
+  const fallback = availableAgents[0] || lastAgent || null;
   return { agent: fallback, reason: 'No stronger local signal is available. Continue with an installed agent.' };
 }
 
@@ -177,7 +178,7 @@ export function operatorSummary({ projects = [], sessions = [], liveStates = {},
   const resume = rankResumeCandidates(projects, sessions, { liveStates, now, limit: 5 });
   const paused = projects.filter((project) => project.status === 'Paused').map((project) => project.name);
   const done = projects.filter((project) => project.status === 'Done').map((project) => project.name);
-  const weekly = weeklyCodexWindow(capacity);
+  const capacityHint = capacityWindow(capacity);
   return {
     todayProjectCount: todayProjects.size,
     waitingCount: waiting.length,
@@ -186,12 +187,12 @@ export function operatorSummary({ projects = [], sessions = [], liveStates = {},
     continueId: resume[0]?.project?.id || null,
     paused,
     done,
-    codexRemaining: weekly && Number.isFinite(Number(weekly.remainingPercent)) ? Math.round(weekly.remainingPercent) : null,
+    capacityHint: capacityHint && Number.isFinite(Number(capacityHint.window.remainingPercent)) ? { provider: capacityHint.provider, label: capacityHint.window.label, remainingPercent: Math.round(capacityHint.window.remainingPercent) } : null,
     generatedAt: new Date(now).toISOString()
   };
 }
 
-export function decorateResumeCards(cards, index, { capacity = null, availableAgents = ADAPTER_AGENTS } = {}) {
+export function decorateResumeCards(cards, index, { capacity = null, availableAgents = [] } = {}) {
   return cards.map((card) => {
     const capabilities = recentCapabilitiesForProject(index, card.project.id);
     const recommendation = startHereRecommendation({
@@ -209,9 +210,10 @@ export function decorateResumeCards(cards, index, { capacity = null, availableAg
   });
 }
 
-export function buildOperator(index, events = [], capacity = null, { now = Date.now(), availableAgents = ADAPTER_AGENTS, attentionSignals = {} } = {}) {
+export function buildOperator(index, events = [], capacity = null, { now = Date.now(), availableAgents = [], attentionSignals = {} } = {}) {
   const liveAgents = [...new Set([
-    ...ADAPTER_AGENTS,
+    ...availableAgents,
+    ...(index.runtimeCatalog?.liveRuntimes || []).map((runtime) => runtime.agent).filter(Boolean),
     ...(index.summary?.agents || []),
     ...events.map((event) => event.agent).filter(Boolean)
   ])];

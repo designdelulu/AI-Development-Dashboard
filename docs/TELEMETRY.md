@@ -1,5 +1,9 @@
 # Telemetry sources
 
+## Local rediscovery and observed identities
+
+Every `ai-dashboard open` performs a local adapter discovery pass; known adapter roots are watched with a debounce and a five-minute local fallback detects supported tools installed while the service is already running. Discovery probes only allowlisted executable/application/root evidence and does not launch applications, parse prompt bodies, or make network requests. A model ID observed from a supported source keeps its raw ID and is normalized into the local identity registry with first/last-seen timestamps. A previously unseen model therefore appears in supported usage/identity surfaces without a dashboard release. This does not make a gateway, an installed application, or historical usage into Live Agent Activity.
+
 ## OpenRouter connected telemetry (optional)
 
 Disabled by default. After explicit connection and manual sync, a supplied OpenRouter Management API key is used only for `GET /api/v1/analytics/meta`, `POST /api/v1/analytics/query`, and `GET /api/v1/credits`. Metadata is fetched first; only metrics/dimensions the response advertises are queried, queries use at most two dimensions, and `metadata.truncated` remains visible. The normalized cache stores aggregate values only (cost, request count, advertised token fields, models/providers, credits, period and sync time), and preserves OpenRouter-reported cost/token evidence as **Exact**.

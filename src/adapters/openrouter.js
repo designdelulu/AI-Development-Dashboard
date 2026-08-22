@@ -3,6 +3,7 @@ import { ADAPTER_CONTRACT_VERSION } from './contract.js';
 export const manifest = {
   id: 'openrouter', contractVersion: ADAPTER_CONTRACT_VERSION, adapterVersion: 1,
   displayName: 'OpenRouter', kind: 'connected-service', risk: 'network-opt-in',
+  runtime: { sourceKey: 'OpenRouter', agent: 'OpenRouter', host: 'OpenRouter' },
   capabilities: { discover: 'connected', history: 'exact', tokens: 'exact', cost: 'exact', capacity: 'partial', models: 'exact', projects: 'unsupported', health: true }
 };
 

@@ -12,6 +12,8 @@ export class AdapterRegistry {
 
   adapters() { return [...this.#adapters.values()]; }
 
+  manifests() { return this.adapters().map((adapter) => adapter.manifest); }
+
   run(method, context) {
     const results = [];
     for (const adapter of this.#adapters.values()) {

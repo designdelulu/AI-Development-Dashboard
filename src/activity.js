@@ -1,9 +1,7 @@
 import os from 'node:os';
 import { execFileSync } from 'node:child_process';
 
-import { ADAPTER_AGENTS } from './brands.js';
-
-export const AGENTS = ADAPTER_AGENTS;
+export const AGENTS = Object.freeze([]);
 export const ACTIVITY_WINDOW_MS=45_000;
 export const ACTIVITY_SAMPLE_MS=1_000;
 export const ACTIVITY_DECAY_MS=9_000;

@@ -12,6 +12,7 @@ import { aggregateTokenDays, dedupeUsageEvents, extractUsageEvent, normalizeUsag
 import { claudePlanCapacityCapability } from './claude-capacity.js';
 import { cursorTokenSessionsFromDb } from './cursor-tokens.js';
 import { AdapterRegistry } from './adapters/registry.js';
+import { observedIdentityRegistry, runtimeCatalog } from './runtime-registry.js';
 import { adapterContext } from './adapters/context.js';
 import * as claudeAdapter from './adapters/claude.js';
 import * as codexAdapter from './adapters/codex.js';
@@ -25,7 +26,7 @@ import { buildEfficiencyFoundation, structuralEventsFromRecord } from './efficie
 
 export const CONFIDENCE = { confirmed: 'Confirmed', strong: 'Strongly inferred', weak: 'Weakly inferred', unknown: 'Unknown' };
 export const METRIC_VERSION = '3.0';
-export const SCHEMA_VERSION = 11;
+export const SCHEMA_VERSION = 12;
 const home = process.env.HOME;
 const hash = (v) => crypto.createHash('sha256').update(String(v)).digest('hex').slice(0, 16);
 const stat = (p) => { try { return fs.statSync(p); } catch { return null; } };
@@ -246,7 +247,8 @@ export function derive(index) {
   const cursorInfo = agentTokenAvailability('Cursor', diagnostics), unavailableAgents = cursorInfo.available ? {} : { Cursor: cursorInfo.reason };
   const tokenActivityIndex = tokenReports(index.sessions, new Date(now), { knownAgents: ['Cursor'], unavailableAgents, diagnostics });
   const foundation = buildEfficiencyFoundation({ sessions: index.sessions, capabilityUsageEvents: capEvents });
-  const result = { ...index, schemaVersion: index.schemaVersion || SCHEMA_VERSION, rawCapabilities, repositories, projects, capabilities, capabilityUsageEvents: capEvents, harnessRuns: index.harnessRuns || [], efficiency: { ...efficiency(index.sessions), foundation }, tokenCalendar: tokenActivityIndex.calendar, tokenReports: tokenActivityIndex.reports, summary: { ...total, activeProjects: projects.filter((project) => project.sessionCount || project.git.lastCommitAt).length, totalObservedTokenActivity: tokenActivity(total.tokens), agents: [...new Set(index.sessions.map((session) => session.agent))], hosts: [...new Set(index.sessions.map((session) => session.host || session.agent))], providers: [...new Set(index.sessions.map((session) => session.provider).filter(Boolean))], models: [...new Set(index.sessions.map((session) => session.model).filter(Boolean))], capabilityUses: capEvents.length, lastScanAt: new Date().toISOString(), diagnostics, activity, monitorEvents } };
+  const runtimePresentation = runtimeCatalog(index.adapterManifests || [], index.sourceStates || {}, index.sessions);
+  const result = { ...index, schemaVersion: index.schemaVersion || SCHEMA_VERSION, rawCapabilities, repositories, projects, capabilities, capabilityUsageEvents: capEvents, harnessRuns: index.harnessRuns || [], efficiency: { ...efficiency(index.sessions), foundation }, tokenCalendar: tokenActivityIndex.calendar, tokenReports: tokenActivityIndex.reports, runtimeCatalog: runtimePresentation, summary: { ...total, activeProjects: projects.filter((project) => project.sessionCount || project.git.lastCommitAt).length, totalObservedTokenActivity: tokenActivity(total.tokens), agents: [...new Set(index.sessions.map((session) => session.agent))], hosts: [...new Set(index.sessions.map((session) => session.host || session.agent))], providers: [...new Set(index.sessions.map((session) => session.provider).filter(Boolean))], models: [...new Set(index.sessions.map((session) => session.model).filter(Boolean))], capabilityUses: capEvents.length, lastScanAt: new Date().toISOString(), diagnostics, activity, monitorEvents } };
   return { ...result, maintenance: maintenanceGroups(capabilities), achievements: achievementsFor(result) };
 }
 export function defaultAdapterRegistry() {
@@ -263,7 +265,7 @@ export function scan(sources, previous=null, { registry = defaultAdapterRegistry
   const byId=Object.fromEntries(historical.map((row)=>[row.id,row.value]));
   const claude=byId.claude||{sessions:[],diagnostics:{}},codex=byId.codex||{sessions:[],diagnostics:{}},cursor=byId.cursor||{sessions:[],diagnostics:{}};
   const cursorTokens=permissions.localRead ? cursorTokenSessionsFromDb(homedir,prior,now) : { sessions: [], diagnostics: { cursorTokenAvailability: 'disabled-by-permission' } };
-  const sessions=[...claude.sessions,...codex.sessions,...cursor.sessions,...cursorTokens.sessions];
+  const sessions=[...historical.flatMap((row)=>Array.isArray(row.value?.sessions)?row.value.sessions.map((session)=>({...session,adapterId:session.adapterId||row.id})):[]),...cursorTokens.sessions.map((session)=>({...session,adapterId:session.adapterId||'cursor'}))];
   const inventory=registry.run('capabilities', context).find((row)=>row.id==='local-inventory')?.value || [];
   const rawCapabilities=inventory;
   const allSignals=sessions.filter(s=>s.agent==='Claude').flatMap(s=>(s.attributedSkills||[]).map(x=>({sessionId:s.id,skill:x.skill,timestamp:x.timestamp||s.timestamp,sourceFile:s.sourceFile})));
@@ -271,14 +273,19 @@ export function scan(sources, previous=null, { registry = defaultAdapterRegistry
   const discoveries=registry.run('discover', context);
   const openRouterState=discoveries.find((row)=>row.id==='openrouter')?.value;
   const antigravityState=discoveries.find((row)=>row.id==='antigravity')?.value || closedDiscovery.Antigravity;
-  const sourceStates=permissions.localRead ? {
-    Claude:applyHistoricalObservation(closedDiscovery.Claude,claude.sessions.length,claude.sessions.map((s)=>s.timestamp).filter(Boolean).sort().at(-1)||null),
-    Codex:applyHistoricalObservation(closedDiscovery.Codex,codex.sessions.length,codex.sessions.map((s)=>s.timestamp).filter(Boolean).sort().at(-1)||null),
-    Cursor:applyHistoricalObservation(closedDiscovery.Cursor,cursor.sessions.length+cursorTokens.sessions.length,[...cursor.sessions,...cursorTokens.sessions].map((s)=>s.timestamp).filter(Boolean).sort().at(-1)||null),
-    Antigravity:antigravityState,
-    'DeepSeek Harness':closedDiscovery['DeepSeek Harness'], OpenCode:closedDiscovery.OpenCode, 'Gemini CLI':closedDiscovery['Gemini CLI'], 'Kimi Code':closedDiscovery['Kimi Code'], 'VS Code':closedDiscovery['VS Code'], Inventory:closedDiscovery.Inventory, OpenRouter:openRouterState
-  } : (openRouterState ? { OpenRouter: openRouterState } : {});
+  const sourceStates=permissions.localRead ? { ...closedDiscovery } : {};
+  for (const row of discoveries) {
+    const sourceKey=row.manifest.runtime?.sourceKey||row.manifest.displayName||row.id;
+    const historicalValue=byId[row.id];
+    const records=[...(historicalValue?.sessions||[]),...(row.id==='cursor'?cursorTokens.sessions:[])];
+    const discovered=row.value||sourceStates[sourceKey]||{};
+    sourceStates[sourceKey]=records.length
+      ? applyHistoricalObservation(discovered,records.length,records.map((session)=>session.timestamp).filter(Boolean).sort().at(-1)||null)
+      : discovered;
+  }
+  if (antigravityState) sourceStates.Antigravity=antigravityState;
+  if (openRouterState) sourceStates.OpenRouter=openRouterState;
   const adapterHealth=discoveries.map((row)=>({ id:row.id, adapterVersion:row.manifest.adapterVersion, capabilities:row.manifest.capabilities, state:row.error?'error':'available', error:row.error||null }));
-  return derive({schemaVersion:SCHEMA_VERSION,metricVersion:METRIC_VERSION,sources,repositories,sessions,rawCapabilities,capabilityUsageEvents:newEvents,harnessRuns:[],editorHosts:permissions.localRead?[discoverVsCodeAI(homedir)]:[],sourceStates,adapterHealth,permissions,errors:historical.filter((row)=>row.error).map((row)=>row.error),diagnostics:{...claude.diagnostics,...codex.diagnostics,...cursor.diagnostics,...cursorTokens.diagnostics,durationMs:Date.now()-began}});
+  return derive({schemaVersion:SCHEMA_VERSION,metricVersion:METRIC_VERSION,sources,repositories,sessions,rawCapabilities,capabilityUsageEvents:newEvents,harnessRuns:[],editorHosts:permissions.localRead?[discoverVsCodeAI(homedir)]:[],sourceStates,adapterHealth,adapterManifests:registry.manifests(),observedIdentities:observedIdentityRegistry(sessions,previous?.observedIdentities||[],{now}),permissions,errors:historical.filter((row)=>row.error).map((row)=>row.error),diagnostics:{...claude.diagnostics,...codex.diagnostics,...cursor.diagnostics,...cursorTokens.diagnostics,durationMs:Date.now()-began}});
 }
 export function defaultSources(options={}){const settings=options.settings||{};const roots=resolveProjectRoots({env:process.env,dataDir:options.dataDir,settings,homedir:home});return {projectsRoot:roots[0],projectsRoots:roots,claudeRoot:path.join(home,'.claude','projects'),codexRoot:path.join(home,'.codex','sessions'),cursorRoot:path.join(home,'.cursor','projects'),cursorStorageRoot:cursorStorageRoot(home),antigravityRoot:path.join(home,'.gemini','antigravity'),antigravityCliRoot:path.join(home,'.gemini','antigravity-cli'),homeDir:home,permissions:normalizePermissions(settings.permissions),connectedServices:settings.connectedServices||{}};}

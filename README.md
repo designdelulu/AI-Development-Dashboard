@@ -2,11 +2,11 @@
 
 A local-first, project-first operating layer for developers working across multiple AI coding agents.
 
-It watches the Git projects on your machine and the local Claude, Codex, and Cursor records around them, then helps you resume work, see live activity, and keep an honest inventory of capabilities. It can observe several agents and future harnesses without becoming an execution harness.
+It watches the Git projects on your machine and registered local/connected telemetry sources, then helps you resume work, see validated live activity, and keep an honest inventory of capabilities. Claude, Codex, Cursor, optional Antigravity telemetry, and optional OpenRouter usage are current sources; newly observed models register without a bundled model list. It can observe several agents and future harnesses without becoming an execution harness.
 
 > Private beta: the GitHub repository is private. This is not a hosted service.
 
-![Live Agent Activity — observed Claude, Codex, and Cursor signal field](docs/assets/ai-development-dashboard-live-activity.png)
+![Live Agent Activity — observed runtime signal field](docs/assets/ai-development-dashboard-live-activity.png)
 
 ![Overview — pick up where you left off](docs/assets/ai-development-dashboard-overview.png)
 
@@ -47,10 +47,13 @@ The repository command is also package-ready:
 npm run dashboard -- open
 npm run dashboard -- status
 npm run dashboard -- stop
+npm run dashboard -- update
 npm run dashboard -- doctor
 ```
 
-`setup` opens the same local onboarding flow; `update`, `uninstall`, and `autostart` are safe Phase 1 previews only. No package is published and start-at-login remains off.
+`open` performs a local discovery pass. While it is running, the dashboard watches known adapter roots and runs a bounded five-minute fallback rediscovery, so supported tools installed later and newly observed models appear without a manual rescan or restart. Discovery is metadata-only and makes no network request.
+
+`update` updates **AI Development Dashboard itself**. In the current linked Git-checkout install it refuses a dirty or diverged checkout, fetches only when you explicitly run the command, fast-forwards only, and restarts only the dashboard service it owns. It does not update AI tools, models, skills, plugins, or capabilities. Unsupported install modes explain which installer/package manager to use. `setup` opens the same local onboarding flow; `uninstall` and `autostart` remain safe previews. Start-at-login remains off.
 
 ## What it does
 

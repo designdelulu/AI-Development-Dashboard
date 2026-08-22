@@ -5,7 +5,7 @@ import path from 'node:path';
 import { extractUsageEvent, dedupeUsageEvents, aggregateTokenDays, normalizeUsage } from '../src/usage-events.js';
 import { buildTokenCalendar, localDateKey, periodBounds, tokenReports } from '../src/tokens.js';
 import { liveFeedSignalState, liveLanes, tokenModule } from '../public/live-ui.js';
-import { ADAPTER_AGENTS, brandOf as brand } from '../public/brands.js';
+import { brandOf as brand } from '../public/brands.js';
 import { readPlanCapacity } from '../src/capacity.js';
 import { cursorTokenAvailability } from '../src/cursor-usage.js';
 
@@ -145,17 +145,19 @@ test('selected range labels stay consistent in the token module', () => {
   assert.doesNotMatch(html, />Unavailable</);
 });
 
-test('dynamic lanes and brand fallback keep host separate from model identity', () => {
-  const lanes = liveLanes([{ agent: 'Claude', timestamp: new Date().toISOString() }], [{ agent: 'Kimi', host: 'Claude Code', model: 'kimi-k3', modelLabel: 'Kimi k3', provider: 'Moonshot', timestamp: new Date().toISOString() }]);
-  const kimi = lanes.find((lane) => lane.agent === 'Kimi');
-  assert.equal(kimi.host, 'Claude Code');
-  assert.equal(kimi.model, 'kimi-k3');
-  assert.equal(kimi.eventAgent, 'Claude');
-  assert.equal(lanes.some((lane) => lane.agent === 'Claude' && lane.model === 'kimi-k3'), false);
+test('dynamic lanes use declared runtimes, preserve host/model separation, and support five sources', () => {
+  const runtimes = ['Claude', 'Codex', 'Cursor', 'OpenCode', 'Gemini CLI'].map((agent, index) => ({ id: `fixture-${index}`, agent, host: agent === 'Claude' ? 'Claude Code' : agent, liveCapable: true }));
+  const lanes = liveLanes([{ agent: 'Claude', timestamp: new Date().toISOString() }], [{ adapterId: 'fixture-0', agent: 'Kimi', host: 'Claude Code', model: 'kimi-k3', modelLabel: 'Kimi k3', provider: 'Moonshot', timestamp: new Date().toISOString() }], { runtimes });
+  const claude = lanes.find((lane) => lane.agent === 'Claude');
+  assert.equal(lanes.length, 5);
+  assert.equal(claude.host, 'Claude Code');
+  assert.equal(claude.model, 'kimi-k3');
+  assert.equal(claude.eventAgent, 'Claude');
+  assert.equal(lanes.some((lane) => lane.agent === 'Kimi'), false);
+  assert.equal(liveLanes([], [], { runtimes: [] }).length, 0);
   assert.equal(brand('Kimi').fallback, true);
   assert.equal(brand('Kimi').letter, 'K');
   assert.equal(brand('Claude').file, 'claude.png');
-  assert.deepEqual([...ADAPTER_AGENTS], ['Claude', 'Codex', 'Cursor']);
 });
 
 test('live feed signal uses working, recent, then idle', () => {
@@ -168,6 +170,15 @@ test('plan capacity stays on account sources, not model lanes', () => {
   const value = readPlanCapacity();
   assert.deepEqual(value.providers.map((row) => row.provider), ['Claude', 'Codex', 'Cursor']);
   assert.match(value.privacy, /not a per-model card/);
+});
+
+test('plan capacity renders registered sources rather than a fixed card set', () => {
+  const value = readPlanCapacity(process.cwd(), {
+    now: () => new Date('2026-08-22T00:00:00.000Z'),
+    sources: [{ id: 'Fixture account', collect: () => ({ provider: 'Fixture account', status: 'Available', windows: [{ id: 'shared', label: 'Shared', remainingPercent: 55, resetAt: null }], observedAt: '2026-08-22T00:00:00.000Z' }) }]
+  });
+  assert.deepEqual(value.providers.map((item) => item.provider), ['Fixture account']);
+  assert.equal(value.providers[0].windows[0].remainingPercent, 55);
 });
 
 test('Munder-specific public docs are gone', () => {

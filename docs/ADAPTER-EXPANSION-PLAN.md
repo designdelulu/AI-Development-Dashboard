@@ -11,9 +11,11 @@ Research date: 2026-08-22. This is the integration-research and adapter-contract
 5. Add OpenRouter as the first connected adapter. Add Gemini CLI and OpenCode as the best early local adapters. Add Antigravity through closed-app discovery plus an optional CLI status-line bridge. Keep DeepSeek Harness feature-probed and explicitly experimental.
 6. Treat OpenBot as design research only; the dashboard remains an observer, not a gateway or execution platform.
 
-## Current-state finding
+## Implemented registry/discovery status
 
-The current product has real Claude, Codex, and Cursor paths, but the adapter boundary is centralized inside `src/core.js`; model-family parsing is hard-coded in `src/identity.js`; UI branding assumes three known agents in `public/brands.js`; and `src/telemetry-contract.js` describes a future contract rather than driving runtime registration. This is manageable for three sources and brittle for ten.
+The registry foundation is now implemented. Adapter manifests declare their version, capabilities, and optional execution-runtime presentation (`sourceKey`, agent, host, harness); local discovery and historical scans feed normalized lifecycle state and an observed identity registry. Each `ai-dashboard open` performs a bounded local discovery pass, known adapter roots are debounced, and a five-minute fallback notices supported local tools installed while the server runs. A new observed model retains its raw ID plus first/last-seen metadata and uses provider/letter branding if no dedicated asset exists.
+
+Structural dashboard surfaces no longer allocate permanent Claude/Codex/Cursor slots: Live Agent Activity renders only registered local runtimes with validated live capability; token, capacity, efficiency, and share identity views consume normalized observations. OpenRouter remains a connected gateway/account, not a runtime lane; its synced model identities retain `gateway: OpenRouter` with unknown agent/host/project unless independently proven. Source-specific parsers and safe launch commands remain intentionally source-specific. An unsupported application may be displayed as detected with no telemetry adapter; it is never treated as supported usage.
 
 On the audited machine, Claude Code, Codex CLI, Cursor, and the Antigravity desktop application were detectable while closed. Their standard configuration/data roots also existed. Antigravity history roots contained no safely usable records in this probe, which is a valid **Installed, no history observed** state. DeepSeek Harness was not present. Current dashboard output already contained Claude/Codex/Cursor sessions; no prompts, message bodies, credentials, or raw tool payloads were inspected for this conclusion.
 

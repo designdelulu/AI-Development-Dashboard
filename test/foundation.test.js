@@ -23,6 +23,9 @@ import { EFFICIENCY_EVIDENCE, buildEfficiencyFoundation, classifyValidationComma
 import { applyEfficiencyMetadata, beginComparisonTracking, createCycle, EFFICIENCY_METADATA_VERSION, loadEfficiencyMetadata, recordOutcome, saveEfficiencyMetadata } from '../src/efficiency-store.js';
 import { buildComparableCohorts, COHORT_CLASSES, comparisonMetrics, eligibilityResult, sampleGate } from '../src/efficiency-comparison.js';
 import { readPlanCapacity } from '../src/capacity.js';
+import { createRediscoveryScheduler } from '../src/rediscovery.js';
+import { installMode, inspectGitUpdate, updateGitCheckout } from '../src/lifecycle/update.js';
+import { mergeObservedIdentities, observedIdentityRegistry } from '../src/runtime-registry.js';
 
 const temp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
 
@@ -38,6 +41,84 @@ test('adapter registry validates manifests, isolates failures, and denies disabl
   const supported = registry.run('historicalSessions', adapterContext())[0];
   assert.deepEqual(supported.value, { sessions: [] });
   assert.equal(registry.run('models', adapterContext())[0].unsupported, true);
+});
+
+test('registry scan registers an unseen model and renders only declared live runtimes', () => {
+  const home = temp('dynamic-runtime-home');
+  const registry = new AdapterRegistry().register({
+    manifest: { id: 'fixture-runtime', contractVersion: ADAPTER_CONTRACT_VERSION, adapterVersion: 1, displayName: 'Fixture Runtime', kind: 'local', risk: 'local-read', runtime: { sourceKey: 'Fixture Runtime', agent: 'Fixture Runtime', host: 'Fixture Host' }, capabilities: { discover: 'local', history: 'exact', live: 'file-growth', models: 'exact', health: true } },
+    discover() { return { installed: { state: 'detected' }, history: { state: 'none-yet' }, live: { state: 'unknown' }, connection: { state: 'not-applicable' } }; },
+    historicalSessions() { return { sessions: [{ id: 'fixture:1', agent: 'Fixture Runtime', host: 'Fixture Host', provider: 'Provider X', model: 'provider-x/new-model-2099', modelRaw: 'provider-x/new-model-2099', modelId: 'provider-x/new-model-2099', harness: 'standalone', timestamp: '2026-08-22T00:00:00.000Z', tokens: { freshInput: 2, output: 1, cacheRead: 0, cacheCreation: 0, reasoning: 0, other: 0 }, tokenDays: {} }] }; }
+  });
+  const value = scan({ projectsRoots: [], permissions: { localRead: true } }, null, { registry, homedir: home, now: new Date('2026-08-22T01:00:00.000Z') });
+  assert.equal(value.observedIdentities[0].modelId, 'provider-x/new-model-2099');
+  assert.equal(value.runtimeCatalog.liveRuntimes.length, 1);
+  assert.equal(value.runtimeCatalog.liveRuntimes[0].host, 'Fixture Host');
+  assert.equal(value.sessions[0].adapterId, 'fixture-runtime');
+});
+
+test('rediscovery starts once, debounces source changes, and keeps periodic fallback local', () => {
+  const runs = [], timers = [], intervals = [];
+  const scheduler = createRediscoveryScheduler({
+    run: (reason) => runs.push(reason),
+    setTimeoutFn: (fn) => { timers.push(fn); return fn; }, clearTimeoutFn: () => {},
+    setIntervalFn: (fn) => { intervals.push(fn); return fn; }, clearIntervalFn: () => {}
+  });
+  scheduler.startup(); scheduler.start(); scheduler.trigger('first'); scheduler.trigger('second');
+  timers.at(-1)(); intervals[0]();
+  assert.deepEqual(runs, ['startup discovery', 'second', 'periodic rediscovery']);
+  assert.equal(scheduler.state().scans, 3);
+});
+
+test('a supported tool and a new model can appear after startup without a restart', () => {
+  const home = temp('rediscovery-new-source'), snapshots = [];
+  let installed = false, model = 'provider-x/model-one';
+  const registry = new AdapterRegistry().register({
+    manifest: { id: 'appearing-runtime', contractVersion: ADAPTER_CONTRACT_VERSION, adapterVersion: 1, displayName: 'Appearing Runtime', kind: 'local', risk: 'local-read', runtime: { sourceKey: 'Appearing Runtime', agent: 'Appearing Runtime', host: 'Appearing Host' }, capabilities: { discover: 'local', history: 'exact', live: 'file-growth', models: 'exact' } },
+    discover() { return { installed: { state: installed ? 'detected' : 'not-detected' }, history: { state: 'none-yet' }, live: { state: 'unknown' }, connection: { state: 'not-applicable' } }; },
+    historicalSessions() { return installed ? { sessions: [{ id: `appearing:${model}`, agent: 'Appearing Runtime', host: 'Appearing Host', provider: 'Provider X', model, modelRaw: model, modelId: model, timestamp: '2026-08-22T00:00:00.000Z', tokens: {}, tokenDays: {} }] } : { sessions: [] }; }
+  });
+  let previous = null;
+  const run = () => { previous = scan({ projectsRoots: [], permissions: { localRead: true } }, previous, { registry, homedir: home }); snapshots.push(previous); };
+  const scheduler = createRediscoveryScheduler({ run, setIntervalFn: () => null, clearIntervalFn: () => {}, setTimeoutFn: (fn) => fn, clearTimeoutFn: () => {} });
+  scheduler.startup();
+  assert.equal(snapshots[0].runtimeCatalog.liveRuntimes.length, 0);
+  installed = true; model = 'provider-x/new-model-2099'; scheduler.periodic();
+  assert.equal(snapshots[1].runtimeCatalog.liveRuntimes.length, 1);
+  assert.equal(snapshots[1].observedIdentities.some((item) => item.modelId === 'provider-x/new-model-2099'), true);
+});
+
+test('connected OpenRouter model identities retain gateway/provider separation and do not make a runtime lane', () => {
+  const identities = mergeObservedIdentities([], [
+    { gateway: 'OpenRouter', provider: 'Moonshot', model: 'Kimi K3', modelId: 'moonshot/kimi-k3' },
+    { gateway: 'OpenRouter', provider: 'DeepSeek', model: 'DeepSeek V4', modelId: 'deepseek/v4' },
+    { gateway: 'OpenRouter', provider: 'Anthropic', model: 'Claude Future', modelId: 'anthropic/claude-future' },
+    { gateway: 'OpenRouter', provider: null, model: 'Future Unknown', modelId: 'future/unknown-2099' }
+  ], { now: new Date('2026-08-22T00:00:00.000Z') });
+  assert.equal(identities.length, 4);
+  assert.equal(identities.every((item) => item.gateway === 'OpenRouter' && item.host === null && item.agent === null), true);
+  assert.equal(identities.find((item) => item.modelId === 'future/unknown-2099').provider, 'Unknown');
+  const next = observedIdentityRegistry([], identities, { now: new Date('2026-08-23T00:00:00.000Z') });
+  assert.equal(next.find((item) => item.modelId === 'moonshot/kimi-k3').firstSeenAt, '2026-08-22T00:00:00.000Z');
+});
+
+test('dashboard update refuses dirty/diverged checkouts and fast-forwards only clean linked Git checkouts', () => {
+  const root = temp('dashboard-update'); fs.mkdirSync(path.join(root, '.git')); fs.mkdirSync(path.join(root, 'src')); fs.writeFileSync(path.join(root, 'package.json'), '{}'); fs.writeFileSync(path.join(root, 'src', 'cli.js'), '');
+  const mode = installMode({ script: path.join(root, 'src', 'cli.js') });
+  const respond = (status = '') => (_bin, args) => {
+    const key = args.join(' ');
+    if (key === 'status --porcelain=v1') return status;
+    if (key === 'branch --show-current') return 'master';
+    if (key === 'remote get-url origin') return 'https://github.com/example/AI-Development-Dashboard.git';
+    if (key === 'rev-parse HEAD') return 'oldhead';
+    if (key === 'fetch --quiet origin') return '';
+    if (key === 'rev-list --left-right --count HEAD...origin/master') return '0\t0';
+    return '';
+  };
+  assert.equal(inspectGitUpdate(mode, { execFile: respond(' M README.md') }).state, 'dirty');
+  const diverged = updateGitCheckout(mode, { execFile: (_bin, args) => args.join(' ') === 'rev-list --left-right --count HEAD...origin/master' ? '1\t1' : respond()(_bin, args) });
+  assert.equal(diverged.state, 'diverged');
+  assert.equal(updateGitCheckout(mode, { execFile: respond() }).state, 'current');
 });
 
 test('async adapter isolation aborts a timed-out adapter without exposing write surfaces', async () => {
