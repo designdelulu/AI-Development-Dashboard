@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import { fileURLToPath } from 'node:url';
-import { defaultSources, scan, applyProjectMetadata, PROJECT_STATUSES, achievementsFor } from './core.js';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { defaultSources, scan, applyProjectMetadata, PROJECT_STATUSES, achievementsFor, SCHEMA_VERSION } from './core.js';
 import { createSystemSampler, liveStateSnapshot, sessionFileSignal } from './activity.js';
 import { readPlanCapacity } from './capacity.js';
 import { shareableStack, manifest, privateInventory, publicMetricOptions, createSnapshot, shareCardSvg, setupPrompt } from './sharing.js';
@@ -14,9 +14,16 @@ import { ADAPTER_AGENTS } from './brands.js';
 import { tokenReportFromCalendar } from './tokens.js';
 import { buildOperator, lastSessionForProject, liveStatesFromEvents, projectHandoff, recentCapabilitiesForProject } from './resume.js';
 import { detectAgents, launchAgent, openAgentCommand } from './open-agent.js';
+import { lifecyclePaths } from './lifecycle/paths.js';
+import { doctor } from './lifecycle/doctor.js';
+import { runtimeToken, removeRuntime, writeRuntime } from './lifecycle/runtime-record.js';
+import { autostartPlan } from './lifecycle/autostart.js';
+import { serviceStatus, startService, stopService } from './lifecycle/service.js';
+import { validateProjectRoots } from './onboarding.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const dataDir = path.join(root, '.dashboard-data');
+const paths = lifecyclePaths({ root });
+const dataDir = paths.dataDir;
 const indexFile = path.join(dataDir, 'index.json');
 const projectMetaFile = path.join(dataDir, 'project-metadata.json');
 const handoffFile = path.join(dataDir, 'handoffs.jsonl');
@@ -55,7 +62,7 @@ function index() {
   if (liveIndex) return liveIndex;
   if (!fs.existsSync(indexFile)) return refresh('startup');
   const stored = JSON.parse(fs.readFileSync(indexFile, 'utf8'));
-  const needsRescan = (stored.schemaVersion || 0) < 8 || (stored.sessions || []).some((session) => !session.provider || !session.host || (session.tokens && Object.values(session.tokens).some(Boolean) && !session.tokenDays));
+  const needsRescan = (stored.schemaVersion || 0) < SCHEMA_VERSION || (stored.sessions || []).some((session) => !session.provider || !session.host || (session.tokens && Object.values(session.tokens).some(Boolean) && !session.tokenDays));
   if (needsRescan) return refresh('schema-identity');
   return (liveIndex = decorate(stored));
 }
@@ -208,7 +215,8 @@ function json(res, value, status = 200) {
   res.setHeader('Content-Type', 'application/json');
   res.end(JSON.stringify(value));
 }
-function serve() {
+function hasSession(req, token) { return String(req.headers.cookie || '').split(';').some((value) => value.trim() === `ai_dashboard_session=${token}`); }
+export function serve({ port = 4177 } = {}) {
   refresh('startup');
   const sources = currentSources();
   rememberLiveFiles('Claude', sources.claudeRoot);
@@ -220,8 +228,22 @@ function serve() {
   setInterval(pollLiveFiles, 1_500).unref();
   setInterval(() => { latestCapacity = readPlanCapacity(); }, 60_000).unref();
   const publicDir = path.join(root, 'public');
+  const controlToken = runtimeToken();
+  const instanceId = runtimeToken();
+  const sessionToken = runtimeToken();
+  let localOrigin = `http://127.0.0.1:${port}`;
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
+    if (url.pathname === '/api/health') return json(res, { state: 'ok', localOnly: true, instanceId: req.headers['x-ai-dashboard-control'] === controlToken ? instanceId : null });
+    if (url.pathname === '/api/control/stop' && req.method === 'POST') {
+      const origin = req.headers.origin || '';
+      if (req.headers['x-ai-dashboard-control'] !== controlToken || origin !== localOrigin) return json(res, { error: 'Unauthorized local control request.' }, 403);
+      json(res, { state: 'stopping' });
+      setTimeout(() => server.close(), 10).unref();
+      return;
+    }
+    const writes = req.method === 'POST';
+    if (writes && (req.headers.origin !== localOrigin || !hasSession(req, sessionToken))) return json(res, { error: 'Unauthorized local browser request.' }, 403);
     if (url.pathname === '/api/data') return json(res, index());
     if (url.pathname === '/api/scan' && req.method === 'POST') return json(res, refresh('manual refresh'));
     if (url.pathname === '/api/status') { const x = index(); return json(res, { state: 'Live', lastUpdated: x.summary.lastScanAt, reason: x.summary.refreshReason || lastReason, diagnostics: x.summary.diagnostics }); }
@@ -239,7 +261,12 @@ function serve() {
     if (url.pathname === '/api/settings' && req.method === 'POST') {
       const b = await body(req);
       const roots = Array.isArray(b.projectsRoots) ? b.projectsRoots : b.projectsRoot ? [b.projectsRoot] : null;
-      const saved = saveSettings(dataDir, roots ? { projectsRoots: roots.filter(Boolean) } : b);
+      if (roots) {
+        const checked = validateProjectRoots(roots);
+        if (!checked.valid) return json(res, { error: checked.errors.join(' ') }, 400);
+        b.projectsRoots = checked.roots;
+      }
+      const saved = saveSettings(dataDir, roots ? { projectsRoots: b.projectsRoots, onboarding: b.onboarding } : b);
       refresh('settings change');
       return json(res, { ...saved, projectsRoots: currentSources().projectsRoots });
     }
@@ -298,10 +325,59 @@ function serve() {
     let asset = url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\//, '');
     asset = path.normalize(asset);
     const full = path.join(publicDir, asset);
-    if (!full.startsWith(publicDir) || !fs.existsSync(full)) { res.statusCode = 404; return res.end('Not found'); }
+    if (path.relative(publicDir, full).startsWith('..') || path.isAbsolute(path.relative(publicDir, full)) || !fs.existsSync(full)) { res.statusCode = 404; return res.end('Not found'); }
+    if (asset === 'index.html') res.setHeader('Set-Cookie', `ai_dashboard_session=${sessionToken}; HttpOnly; SameSite=Strict; Path=/`);
     res.setHeader('Content-Type', contentType(full));
     res.end(fs.readFileSync(full));
   });
-  server.listen(4177, '127.0.0.1', () => console.log('AI Development Dashboard → http://127.0.0.1:4177'));
+  server.once('close', () => removeRuntime(paths.runtimeFile));
+  server.once('error', (error) => {
+    console.error(`Dashboard server failed: ${error.message}`);
+    removeRuntime(paths.runtimeFile);
+  });
+  server.listen(port, '127.0.0.1', () => {
+    const address = server.address();
+    const actualPort = typeof address === 'object' && address ? address.port : port;
+    const url = `http://127.0.0.1:${actualPort}`;
+    localOrigin = url;
+    writeRuntime(paths.runtimeFile, { version: 1, pid: process.pid, script: path.resolve(process.argv[1]), startedAt: new Date().toISOString(), url, port: actualPort, instanceId, controlToken, dataDir });
+    console.log(`AI Development Dashboard → ${url}`);
+  });
+  return server;
 }
-if (process.argv[2] === 'scan') { const data = refresh(); console.log(`Indexed ${data.projects.length} projects, ${data.sessions.length} sessions, ${data.capabilities.length} capabilities.`); } else serve();
+
+function argValue(args, name, fallback = null) { const i = args.indexOf(name); return i >= 0 && args[i + 1] ? args[i + 1] : fallback; }
+async function openBrowser(url) {
+  if (process.platform === 'darwin') { (await import('node:child_process')).spawn('open', [url], { detached: true, stdio: 'ignore' }).unref(); return true; }
+  if (process.platform === 'win32') { (await import('node:child_process')).spawn('cmd', ['/c', 'start', '', url], { detached: true, stdio: 'ignore' }).unref(); return true; }
+  return false;
+}
+export async function main(args = process.argv.slice(2)) {
+  const command = args[0] || 'serve';
+  const script = path.resolve(process.argv[1]);
+  const requestedPort = argValue(args, '--port', '4177');
+  const port = Number.isInteger(Number(requestedPort)) && Number(requestedPort) >= 0 ? Number(requestedPort) : 4177;
+  if (command === 'scan') { const data = refresh(); console.log(`Indexed ${data.projects.length} projects, ${data.sessions.length} sessions, ${data.capabilities.length} capabilities.`); return 0; }
+  if (command === 'serve') { serve({ port }); return 0; }
+  if (command === 'start' || command === 'open') {
+    const status = await startService({ paths, script, port });
+    if (status.state !== 'running') { console.error(status.error || 'Unable to start dashboard.'); return 1; }
+    if (command === 'open' && !args.includes('--no-open')) await openBrowser(status.runtime.url);
+    console.log(status.runtime.url); return 0;
+  }
+  if (command === 'status') { const status = await serviceStatus(paths, script); console.log(args.includes('--json') ? JSON.stringify(status, null, 2) : `${status.state}${status.runtime?.url ? ` ${status.runtime.url}` : ''}`); return status.state === 'error' ? 1 : 0; }
+  if (command === 'stop') { const status = await stopService({ paths, script }); console.log(status.state); return status.state === 'error' ? 1 : 0; }
+  if (command === 'doctor') { const result = doctor(paths, script); console.log(args.includes('--json') ? JSON.stringify(result, null, 2) : result.ok ? 'ok' : 'needs attention'); return result.ok ? 0 : 1; }
+  if (command === 'setup') {
+    fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+    const status = await startService({ paths, script, port });
+    if (status.state !== 'running') { console.error(status.error || 'Unable to start dashboard setup.'); return 1; }
+    if (!args.includes('--no-open')) await openBrowser(status.runtime.url);
+    console.log(`Dashboard setup is ready at ${status.runtime.url}`); return 0;
+  }
+  if (command === 'autostart') { const plan = autostartPlan({ command: 'ai-dashboard', dataDir }); console.log(JSON.stringify({ ...plan, state: 'disabled', note: 'Autostart is opt-in. This Phase 1 command previews the per-user plan only.' }, null, 2)); return 0; }
+  if (command === 'update') { console.log('Update checks are disabled by default. No network request was made.'); return 0; }
+  if (command === 'uninstall') { console.log(JSON.stringify({ state: 'preview', package: 'Use your npm package manager to remove the package.', retainedData: dataDir, autostart: 'No job is installed by this Phase 1 foundation.' }, null, 2)); return 0; }
+  console.error('Usage: ai-dashboard [serve|scan|setup|start|open|status|stop|doctor|autostart|update|uninstall]'); return 1;
+}
+if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().then((code) => { if (code) process.exitCode = code; });

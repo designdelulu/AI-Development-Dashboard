@@ -7,7 +7,11 @@
   "scripts": {
     "scan": "node src/cli.js scan",
     "start": "node src/cli.js serve",
+    "dashboard": "node src/cli.js",
     "test": "node --test test/*.test.js"
+  },
+  "bin": {
+    "ai-dashboard": "bin/ai-dashboard.js"
   },
   "engines": { "node": ">=20" }
 }

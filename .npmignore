@@ -1,0 +1,7 @@
+.dashboard-data/
+.git/
+.github/
+test/
+docs/
+public/assets/achievements/source/
+*.tgz

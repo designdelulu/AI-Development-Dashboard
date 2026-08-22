@@ -2,6 +2,8 @@
 
 AI Development Dashboard is local-first and binds its server to `127.0.0.1`. It does not upload code, conversations, credentials, session bodies, or telemetry.
 
+The local service records an owned runtime instance only after binding. Stop/status verify its random local control token and instance identity rather than trusting a PID alone; browser state-changing requests also require same-origin access and an HttpOnly local session cookie. No remote integration is enabled by default.
+
 If you find a path that can expose private data through a public export, generated share card, localhost endpoint, or committed file, please report it privately to the repository owner. Do not include real secrets or raw transcripts in an issue.
 
 ## Sensitive material never accepted in contributions
