@@ -22,6 +22,12 @@ Antigravity discovery reads only app/CLI/root presence while closed. Opaque IDE/
 
 Snapshots retain host `Antigravity`, raw/normalized model, independently inferred underlying provider, local workspace/cwd, current context categories, CLI version, plan tier, and quota buckets. They do not create historical sessions or Live Agent Activity. Quota buckets are independent capacity sources and are never copied to individual models.
 
+## Efficiency instrumentation foundation
+
+`src/efficiency.js` derives private structural observations from the normalized index during a normal scan; it does not reread transcripts on Efficiency-page navigation. `src/efficiency-store.js` keeps user-confirmed outcomes and user-created cycles separately from scanner output, so rescans cannot overwrite them. The API composes those records with an already-cached OpenRouter aggregate only; it never triggers a remote sync.
+
+The first boundary is deliberately conservative: one indexed session becomes one `session-proxy` Work Block. Structured validator/tool/provider fields can form measured events and validation-scoped attempts. Retry and possible-rework inference remains separately labelled; model switches require an explicit continuation relationship and are not inferred from timestamp proximity. Tasks and semantic completion remain Unknown without a harness ID or user confirmation.
+
 ## Canonical identity and confidence
 
 Git root under the configured projects root is the canonical project identity. A session is **Confirmed** only when its recorded working directory resolves below that root. Cursor folders are matched from their encoded project path and are **Strongly inferred**; unmapped records remain Unknown/Weakly inferred rather than being silently assigned.

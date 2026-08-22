@@ -292,6 +292,10 @@ No green/red “winner” until a controlled trial meets the threshold. Even the
 - historical sessions can participate in descriptive usage, then gain user-confirmed cycles/outcomes without changing original source data;
 - changing a boundary/metric definition invalidates cached cohort results and records the old result as obsolete.
 
+## Implemented Phase 3A foundation
+
+Metric-definition version 3.0 implements the normalized private event layer and evidence-readiness workspace. Existing indexed token-day records backfill `UsageObservation` deterministically. Current Claude/Codex structured records may contribute tool-call, tool-error, recognized validator, numeric exit, rate-limit/provider-error, retry-count, and task-complete markers where those fields actually exist. Work Blocks use the documented `session-proxy` method; attempts are validation-scoped; no historical Task or accepted outcome is fabricated. User-confirmed outcomes are separate reversible local metadata. The first UI deliberately stops at descriptive rows and evidence readiness; Unit 20 comparative distributions and controlled reports remain unimplemented.
+
 ## Tests
 
 - deterministic observation/cycle/attempt IDs and deduplication;

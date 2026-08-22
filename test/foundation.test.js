@@ -19,6 +19,8 @@ import { createOpenRouterService } from '../src/openrouter/service.js';
 import { analyticsSchema, normalizeAnalytics } from '../src/openrouter/analytics.js';
 import { shareableStack } from '../src/sharing.js';
 import { antigravityCapacity, antigravityCaptureConfigured, antigravitySettingsPath, antigravityStatePath, disableAntigravityCapture, enableAntigravityCapture, normalizeAntigravityStatus, previewAntigravityCapture, readAntigravitySettings } from '../src/antigravity.js';
+import { EFFICIENCY_EVIDENCE, buildEfficiencyFoundation, classifyValidationCommand, detectedModelSwitches, efficiencySnapshot, inferPossibleRework, structuralEventsFromRecord } from '../src/efficiency.js';
+import { applyEfficiencyMetadata, createCycle, loadEfficiencyMetadata, recordOutcome, saveEfficiencyMetadata } from '../src/efficiency-store.js';
 import { readPlanCapacity } from '../src/capacity.js';
 
 const temp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
@@ -253,6 +255,71 @@ test('Antigravity capacity dynamically joins registered providers without model 
   const script = fs.readFileSync(path.join(process.cwd(), 'scripts', 'antigravity-statusline-capture.mjs'), 'utf8');
   assert.doesNotMatch(script, /transcript_path\)/);
   assert.match(script, /never opens transcript_path/);
+});
+
+function efficiencySession(overrides = {}) {
+  return {
+    id: 'Codex:eff-1', agent: 'Codex', host: 'Codex CLI', harness: 'standalone', provider: 'OpenAI', model: 'GPT-5.6', modelRaw: 'gpt-5.6', modelId: 'gpt-5.6', projectId: 'project:alpha', attributionConfidence: 'Confirmed', timestamp: '2026-08-21T10:00:00.000Z', usageStartedAt: '2026-08-21T10:00:00.000Z', usageEndedAt: '2026-08-21T10:20:00.000Z', recordedAt: '2026-08-21T10:21:00.000Z', tokenDays: { '2026-08-21': { date: '2026-08-21', firstAt: '2026-08-21T10:00:00.000Z', lastAt: '2026-08-21T10:20:00.000Z', eventCount: 2, evidence: 'exact', tokens: { freshInput: 100, output: 25, cacheRead: 50, cacheCreation: 0, reasoning: 0, other: 0 } } },
+    efficiencyEvents: [], ...overrides
+  };
+}
+
+test('efficiency structural events classify only bounded measured metadata', () => {
+  assert.equal(classifyValidationCommand('npm test -- --runInBand'), 'javascript-test');
+  assert.equal(classifyValidationCommand('echo $PRIVATE_TEXT'), null);
+  const events = structuralEventsFromRecord({ timestamp: '2026-08-21T10:00:00Z', type: 'command_execution', payload: { command: 'npm test', exit_code: 1, retry_count: 2 } }, { sessionId: 's1', source: 'fixture', sequence: 1 });
+  assert.deepEqual(events.map((item) => item.type).sort(), ['retry_measured', 'tool_call', 'validation_attempted', 'validation_failed']);
+  assert.equal(events.every((item) => item.evidence === EFFICIENCY_EVIDENCE.measured), true);
+  assert.equal(JSON.stringify(events).includes('npm test'), false);
+  const toolFailure = structuralEventsFromRecord({ timestamp: '2026-08-21T10:01:00Z', type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 'call-1', is_error: true, content: 'private output' }] } }, { sessionId: 's1', source: 'fixture', sequence: 2 });
+  assert.equal(toolFailure.some((item) => item.type === 'tool_error'), true);
+  const rate = structuralEventsFromRecord({ timestamp: '2026-08-21T10:02:00Z', type: 'error', payload: { error_code: 'rate_limit' } }, { sessionId: 's1', source: 'fixture', sequence: 3 });
+  assert.equal(rate.some((item) => item.type === 'rate_limit'), true);
+});
+
+test('efficiency foundation keeps session work blocks descriptive and tasks unknown', () => {
+  const failure = structuralEventsFromRecord({ timestamp: '2026-08-21T10:10:00Z', type: 'command_execution', payload: { command: 'npm test', exit_code: 1 } }, { sessionId: 'Codex:eff-1', source: 'fixture', sequence: 1, model: 'GPT-5.6' });
+  const pass = structuralEventsFromRecord({ timestamp: '2026-08-21T10:15:00Z', type: 'command_execution', payload: { command: 'npm test', exit_code: 0 } }, { sessionId: 'Codex:eff-1', source: 'fixture', sequence: 2, model: 'GPT-5.6' });
+  const foundation = buildEfficiencyFoundation({ sessions: [efficiencySession({ efficiencyEvents: [...failure, ...pass] })], capabilityUsageEvents: [{ id: 'skill-event', capabilityId: 'capability:one', sessionId: 'Codex:eff-1', projectId: 'project:alpha', timestamp: '2026-08-21T10:16:00Z', evidenceType: 'Claude structured attributionSkill' }] });
+  assert.equal(foundation.workBlocks.length, 1);
+  assert.equal(foundation.workBlocks[0].boundaryMethod, 'session-proxy');
+  assert.equal(foundation.attempts.length, 2);
+  assert.equal(foundation.outcomes.some((item) => item.state === 'accepted'), false);
+  assert.equal(foundation.events.some((item) => item.type === 'retry_inferred' && item.evidence === EFFICIENCY_EVIDENCE.inferred), true);
+  assert.equal(foundation.capabilityEvidence[0].class, 'confirmed-invocation');
+});
+
+test('efficiency snapshot preserves unavailable metrics, exact remote cost, and sample guardrails', () => {
+  const session = efficiencySession();
+  const foundation = buildEfficiencyFoundation({ sessions: [session] });
+  const snapshot = efficiencySnapshot(foundation, { period: 'all', now: new Date('2026-08-22T00:00:00Z') });
+  assert.equal(snapshot.models[0].exactApiCost, null);
+  assert.equal(snapshot.models[0].tests.attempted, null);
+  assert.equal(snapshot.models[0].comparison.eligible, false);
+  const withCost = efficiencySnapshot(foundation, { period: 'all', now: new Date('2026-08-22T00:00:00Z'), remoteAnalytics: { range: { id: 'all' }, models: [{ model: 'GPT-5.6', modelId: 'gpt-5.6', provider: 'OpenAI', cost: 0.42 }] } });
+  assert.equal(withCost.models[0].exactApiCost, 0.42);
+  assert.match(withCost.models[0].costCoverage, /Exact OpenRouter/);
+});
+
+test('efficiency rework and model-switch inferences require explicit structural continuation evidence', () => {
+  const rework = inferPossibleRework([{ id: 'a', workBlockId: 'w', timestamp: '2026-08-21T10:00:00Z', pathHash: 'file', changeKind: 'edit' }, { id: 'b', workBlockId: 'w', timestamp: '2026-08-21T10:01:00Z', pathHash: 'file', changeKind: 'revert' }]);
+  assert.equal(rework[0].evidence, EFFICIENCY_EVIDENCE.inferred);
+  const switches = detectedModelSwitches([{ id: 'a', continuationId: 'explicit-cycle', startedAt: '2026-08-21T10:00:00Z', identity: { modelId: 'claude-sonnet-4' } }, { id: 'b', continuationId: 'explicit-cycle', startedAt: '2026-08-21T10:05:00Z', identity: { modelId: 'gpt-5.6' } }]);
+  assert.equal(switches.length, 1);
+  assert.equal(detectedModelSwitches([{ id: 'a', startedAt: '2026-08-21T10:00:00Z', identity: { modelId: 'a' } }, { id: 'b', startedAt: '2026-08-21T10:05:00Z', identity: { modelId: 'b' } }]).length, 0);
+});
+
+test('efficiency user outcomes and cycles are reversible local metadata', () => {
+  const folder = temp('efficiency-metadata');
+  let metadata = recordOutcome({}, 'work:a', 'accepted');
+  assert.equal(metadata.outcomes['work:a'].evidenceClass, EFFICIENCY_EVIDENCE.userConfirmed);
+  metadata = recordOutcome(metadata, 'work:a', 'unknown');
+  assert.equal(metadata.outcomes['work:a'], undefined);
+  const created = createCycle(metadata, ['work:a', 'work:b']);
+  saveEfficiencyMetadata(folder, created.metadata);
+  assert.equal(loadEfficiencyMetadata(folder).cycles[0].boundaryMethod, 'user-confirmed-grouping');
+  const applied = applyEfficiencyMetadata(buildEfficiencyFoundation({ sessions: [efficiencySession()] }), recordOutcome({}, 'work:missing', 'rejected'));
+  assert.equal(applied.outcomes.some((item) => item.evidenceClass === 'user-confirmed'), true);
 });
 
 test('runtime records and autostart plans are per-user, opt-in foundations', () => {

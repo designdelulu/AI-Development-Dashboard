@@ -22,6 +22,8 @@ import { serviceStatus, startService, stopService } from './lifecycle/service.js
 import { validateProjectRoots } from './onboarding.js';
 import { createOpenRouterService } from './openrouter/service.js';
 import { disableAntigravityCapture, enableAntigravityCapture, previewAntigravityCapture } from './antigravity.js';
+import { applyEfficiencyMetadata, createCycle, loadEfficiencyMetadata, recordOutcome, removeCycle, saveEfficiencyMetadata } from './efficiency-store.js';
+import { efficiencySnapshot } from './efficiency.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const paths = lifecyclePaths({ root });
@@ -46,7 +48,9 @@ function recordHandoff(entry) { fs.mkdirSync(dataDir, { recursive: true }); fs.a
 function decorate(result) {
   const withMeta = applyProjectMetadata(result, projectMetadata());
   const handoffs = loadHandoffs();
-  return { ...withMeta, handoffs, achievements: achievementsFor(withMeta, { handoffs }) };
+  const foundation = applyEfficiencyMetadata(withMeta.efficiency?.foundation || {}, loadEfficiencyMetadata(dataDir));
+  const decorated = { ...withMeta, efficiency: { ...(withMeta.efficiency || {}), foundation } };
+  return { ...decorated, handoffs, achievements: achievementsFor(decorated, { handoffs }) };
 }
 function currentSources() { return defaultSources({ dataDir, settings: loadSettings(dataDir) }); }
 function antigravityCliPresent() { return Boolean(index().sourceStates?.Antigravity?.installed?.evidence?.includes('binary')); }
@@ -255,6 +259,7 @@ export function serve({ port = 4177 } = {}) {
     const writes = req.method === 'POST';
     if (writes && (req.headers.origin !== localOrigin || !hasSession(req, sessionToken))) return json(res, { error: 'Unauthorized local browser request.' }, 403);
     if (url.pathname === '/api/data') return json(res, index());
+    if (url.pathname === '/api/efficiency' && req.method === 'GET') return json(res, efficiencySnapshot(index().efficiency?.foundation || {}, { period: url.searchParams.get('period') || '7d', remoteAnalytics: openRouter.state().cached }));
     if (url.pathname === '/api/openrouter' && req.method === 'GET') return json(res, openRouter.state());
     if (url.pathname === '/api/openrouter/connect' && req.method === 'POST') {
       try { return json(res, await openRouter.connect({ period: (await body(req)).period || 'today' })); }
@@ -286,6 +291,29 @@ export function serve({ port = 4177 } = {}) {
       catch (error) { return json(res, { error: error?.code || 'integration-error' }, 400); }
     }
     if (url.pathname === '/api/scan' && req.method === 'POST') return json(res, refresh('manual refresh'));
+    const outcomeMatch = url.pathname.match(/^\/api\/efficiency\/work-blocks\/([^/]+)\/outcome$/);
+    if (outcomeMatch && req.method === 'POST') {
+      const workBlockId = decodeURIComponent(outcomeMatch[1]), b = await body(req), current = loadEfficiencyMetadata(dataDir);
+      const known = (index().efficiency?.foundation?.workBlocks || []).some((item) => item.id === workBlockId);
+      if (!known) return json(res, { error: 'Work block not found.' }, 404);
+      saveEfficiencyMetadata(dataDir, recordOutcome(current, workBlockId, b.state));
+      liveIndex = decorate(index());
+      return json(res, efficiencySnapshot(liveIndex.efficiency.foundation, { period: b.period || '7d', remoteAnalytics: openRouter.state().cached }));
+    }
+    if (url.pathname === '/api/efficiency/cycles' && req.method === 'POST') {
+      try {
+        const b = await body(req), known = new Set((index().efficiency?.foundation?.workBlocks || []).map((item) => item.id));
+        if (!Array.isArray(b.workBlockIds) || b.workBlockIds.some((id) => !known.has(id))) return json(res, { error: 'A selected work block was not found.' }, 400);
+        const current = loadEfficiencyMetadata(dataDir), created = createCycle(current, b.workBlockIds);
+        saveEfficiencyMetadata(dataDir, created.metadata); liveIndex = decorate(index());
+        return json(res, { cycle: created.cycle, foundation: liveIndex.efficiency.foundation });
+      } catch (error) { return json(res, { error: error.message }, 400); }
+    }
+    const cycleMatch = url.pathname.match(/^\/api\/efficiency\/cycles\/([^/]+)$/);
+    if (cycleMatch && req.method === 'DELETE') {
+      const current = loadEfficiencyMetadata(dataDir); saveEfficiencyMetadata(dataDir, removeCycle(current, decodeURIComponent(cycleMatch[1]))); liveIndex = decorate(index());
+      return json(res, { foundation: liveIndex.efficiency.foundation });
+    }
     if (url.pathname === '/api/status') { const x = index(); return json(res, { state: 'Live', lastUpdated: x.summary.lastScanAt, reason: x.summary.refreshReason || lastReason, diagnostics: x.summary.diagnostics }); }
     if (url.pathname === '/api/live-state') { res.setHeader('Cache-Control', 'no-store, max-age=0'); return json(res, liveState()); }
     if (url.pathname === '/api/live') { res.setHeader('Cache-Control', 'no-store, max-age=0'); return json(res, liveState().activity); }
