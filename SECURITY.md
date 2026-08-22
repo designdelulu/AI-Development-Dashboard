@@ -10,6 +10,8 @@ Antigravity Phase 2B is local-only. Its optional status-line bridge cannot chang
 
 Appearance customization accepts only a normalized three- or six-digit hexadecimal accent value. It is stored locally, applied through CSS variables, cannot inject arbitrary CSS, makes no network request, and never changes semantic error, warning, or success colors.
 
+Bug reporting is a separate explicit opt-in surface. The lower-left UI action and `ai-dashboard report-bug` create a local report bundle first; no automatic error upload, SMTP, GitHub authentication, or hidden endpoint exists. User-entered descriptions/context and selected screenshots remain user-controlled content and must be reviewed before sharing. Client-side screenshot MIME/size checks are convenience controls only; any future HTTPS receiver must revalidate MIME, size, JSON schema, rate limits, and abuse controls server-side. Diagnostics are allowlisted rather than assembled from raw logs, environment variables, settings, or transcripts. The bounded lifecycle event log stores sanitized stage/code/message metadata only and is local under `.dashboard-data/`.
+
 If you find a path that can expose private data through a public export, generated share card, localhost endpoint, or committed file, please report it privately to the repository owner. Do not include real secrets or raw transcripts in an issue.
 
 ## Sensitive material never accepted in contributions

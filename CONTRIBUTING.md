@@ -11,6 +11,7 @@ Thank you for considering a contribution. This project is currently a private lo
 - Add deterministic sanitized fixtures for parser, attribution, privacy, or metric changes.
 - Do not alter external agent configuration as part of dashboard behavior.
 - Use the shared accent variables for user-personalizable highlights; do not add a hardcoded Design Delulu pink where the selected accent should apply. Keep semantic success, warning, and error colors independent from the accent.
+- Keep lifecycle/reporting diagnostics allowlisted. Never add raw log, environment, transcript, prompt, source-code, credential, or private-path content to a bug bundle or new endpoint.
 
 ## Local workflow
 

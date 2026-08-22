@@ -4,6 +4,10 @@ AI Development Dashboard is local-first. The Local Core—the scanner, localhost
 
 Every `ai-dashboard open` performs bounded local discovery, and the running dashboard debounces known adapter-root changes with a five-minute fallback check. These probes use allowlisted executable/application/local-root metadata only: they do not launch tools, read prompt/transcript bodies, inspect browser data, or contact provider/GitHub services. New observed model IDs are normalized and retained locally with first/last-seen metadata. This is separate from optional Connected Services.
 
+## Explicit bug reporting
+
+Bug reporting is opt-in. A lower-left **Report a bug** action is available when the dashboard is running, and `ai-dashboard report-bug` is available when it is not. Nothing is transmitted when an error occurs or when the dashboard starts. Reports are first written locally as a small bundle under `.dashboard-data/bug-reports/` so the user can review and attach them manually. Diagnostics are built from an allowlist of dashboard version/commit, schema version, OS/Node summary, lifecycle state/stage, boolean permission state, adapter lifecycle summaries, aggregate counts, and bounded sanitized lifecycle events. Prompt bodies, responses, transcript text, source code, terminal/test output, tool arguments, credentials, cookies/JWTs, environment values, private notes, project names, and full absolute paths are excluded. The description and context are user-authored fields and should be reviewed before sharing. A screenshot is included only when the user explicitly selects one and confirms it in the report; the UI warns that images may contain private project information.
+
 ## Optional Connected Services
 
 Connected Services are disabled by default. When you explicitly connect OpenRouter and manually sync, the dashboard contacts only OpenRouter's analytics metadata/query and credits endpoints using a management key supplied to the dashboard process through `OPENROUTER_MANAGEMENT_KEY`. The key is not written to disk: settings retain only the opaque `env:OPENROUTER_MANAGEMENT_KEY` reference. The connector stores normalized aggregate model/provider, token, request, cost, and credit data with sync timestamps; it does not send or retain prompts, transcript bodies, source code, raw request IDs, account IDs, or API-key metadata. Disconnect disables future OpenRouter calls and forgets the reference while preserving already-normalized local aggregates.
@@ -20,6 +24,7 @@ Efficiency instrumentation stores only normalized IDs, timestamps, identity, tok
 - project pins, statuses, and private notes in `project-metadata.json`
 - local appearance preference (a validated accent hex value) in `settings.json` and browser local storage
 - frozen public-safe share snapshots when you export a recap
+- explicitly saved local bug-report bundles, containing only report text, an optional selected screenshot, and optional allowlisted diagnostics
 
 ## What is never copied
 

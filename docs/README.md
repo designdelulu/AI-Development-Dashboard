@@ -6,6 +6,7 @@
 - [Architecture](ARCHITECTURE.md)
 - [Telemetry sources and connected services](TELEMETRY.md)
 - [Metric definitions](METRICS.md)
+- [Support and privacy-safe bug reports](../README.md#something-went-wrong)
 - [Privacy](../PRIVACY.md)
 - [Security](../SECURITY.md)
 - [Sharing privacy](SHARING-PRIVACY.md)

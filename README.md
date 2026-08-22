@@ -57,6 +57,8 @@ Run `ai-dashboard --help` for the complete lifecycle command list.
 
 `update` updates the **dashboard only**. It does not update Claude, Codex, Cursor, Antigravity, OpenRouter models, skills, plugins, or capabilities. For a linked Git checkout it refuses dirty or diverged work, fetches only when you explicitly request it, fast-forwards only, and restarts only the dashboard service it owns.
 
+If startup genuinely fails, `open` reports the sanitized failure category instead of waiting through a generic timeout. Run `ai-dashboard doctor` for local lifecycle state; the server also keeps a small bounded lifecycle log under `.dashboard-data/`.
+
 ## Discovery that keeps up
 
 Every `ai-dashboard open` performs local discovery. While it is running, the dashboard watches known adapter roots and uses a bounded five-minute local fallback check. You do not normally need a rescan or restart.
@@ -125,6 +127,19 @@ See [Privacy](PRIVACY.md), [Security](SECURITY.md), and [sharing privacy](docs/S
 | Stop the owned service | Run `ai-dashboard stop`. |
 | Update refused because the Git tree is dirty | Commit or stash your own changes, then retry. The updater never overwrites them. |
 | Port or lifecycle issue | Run `ai-dashboard status`, then `ai-dashboard doctor`. |
+
+## Something went wrong?
+
+When the dashboard is running, use **Report a bug** in the lower-left sidebar. Add a description, optionally choose one screenshot, review the report and sanitized diagnostics, and save a local report bundle before sharing it. Nothing is transmitted automatically and there is no report receiver configured by default.
+
+When the dashboard will not open:
+
+```bash
+ai-dashboard doctor
+ai-dashboard report-bug
+```
+
+`report-bug` works with the service stopped and stores a reviewable bundle under `.dashboard-data/bug-reports/`. It never includes prompts, transcript text, source code, terminal output, credentials, cookies, environment values, or private absolute paths. A future explicitly configured HTTPS receiver may accept a report only after an explicit submit; otherwise attach the local bundle manually.
 
 ## Documentation
 

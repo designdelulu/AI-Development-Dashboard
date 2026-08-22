@@ -25,6 +25,8 @@ import { buildComparableCohorts, COHORT_CLASSES, comparisonMetrics, eligibilityR
 import { readPlanCapacity } from '../src/capacity.js';
 import { createRediscoveryScheduler } from '../src/rediscovery.js';
 import { installMode, inspectGitUpdate, updateGitCheckout } from '../src/lifecycle/update.js';
+import { portOccupied, startService } from '../src/lifecycle/service.js';
+import { appendLifecycleEvent, readLifecycleEvents } from '../src/lifecycle/log.js';
 import { mergeObservedIdentities, observedIdentityRegistry } from '../src/runtime-registry.js';
 import { ACCENT_PRESETS, DEFAULT_ACCENT, accentTheme, applyAccent, normalizeAccentColor, rememberAccent, storedAccent } from '../public/theme.js';
 
@@ -537,6 +539,35 @@ test('runtime records and autostart plans are per-user, opt-in foundations', () 
     assert.deepEqual(plan.command, ['ai-dashboard', 'start', '--no-open']);
     assert.match(plan.ownership, /per-user|systemd user/);
   }
+});
+
+test('lifecycle startup refuses an occupied port before spawning a second service', async () => {
+  const root = temp('lifecycle-port'), paths = { dataDir: root, runtimeFile: path.join(root, 'runtime.json'), logFile: path.join(root, 'runtime.log'), lifecycleFile: path.join(root, 'lifecycle.jsonl') };
+  let spawned = false;
+  const result = await startService({ paths, script: path.join(root, 'bin.js'), port: 4177, portProbe: async () => true, spawnProcess: () => { spawned = true; throw new Error('must not spawn'); } });
+  assert.equal(result.reasonCode, 'port-occupied');
+  assert.equal(spawned, false);
+  assert.match(result.error, /already in use/);
+});
+
+test('lifecycle startup surfaces the child bind error instead of waiting for the full timeout', async () => {
+  const root = temp('lifecycle-child'), paths = { dataDir: root, runtimeFile: path.join(root, 'runtime.json'), logFile: path.join(root, 'runtime.log'), lifecycleFile: path.join(root, 'lifecycle.jsonl') };
+  appendLifecycleEvent(paths.lifecycleFile, { stage: 'server-error', code: 'EADDRINUSE', message: 'listen EADDRINUSE /private/path' });
+  const child = { once(event, handler) { if (event === 'exit') handler(0, null); return this; }, unref() {} };
+  const result = await startService({ paths, script: path.join(root, 'bin.js'), port: 4177, timeoutMs: 30_000, portProbe: async () => false, spawnProcess: () => child, sleep: async () => {} });
+  assert.equal(result.reasonCode, 'port-occupied');
+  assert.match(result.error, /already in use/);
+  assert.equal(readLifecycleEvents(paths.lifecycleFile).at(-1).message.includes('/private/path'), false);
+});
+
+test('lifecycle event log is bounded and stores only sanitized stage metadata', () => {
+  const root = temp('lifecycle-log'), file = path.join(root, 'lifecycle.jsonl');
+  for (let i = 0; i < 220; i++) appendLifecycleEvent(file, { stage: `stage-${i}`, message: `/Users/ericbarker/private prompt body ${'x'.repeat(500)}` });
+  const events = readLifecycleEvents(file);
+  assert.ok(events.length <= 160);
+  assert.equal(fs.statSync(file).size <= 48 * 1024, true);
+  assert.equal(events.at(-1).message.includes('/Users/ericbarker'), false);
+  assert.equal(events.at(-1).message.includes('prompt body'), true);
 });
 
 test('repository CLI entrypoint and package bin expose lifecycle commands', () => {

@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import { execFileSync, spawn as spawnProcess } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { defaultSources, scan, applyProjectMetadata, PROJECT_STATUSES, achievementsFor, SCHEMA_VERSION } from './core.js';
+import { defaultSources, derive, scan, applyProjectMetadata, PROJECT_STATUSES, achievementsFor, SCHEMA_VERSION } from './core.js';
 import { createSystemSampler, liveStateSnapshot, sessionFileSignal } from './activity.js';
 import { readPlanCapacity } from './capacity.js';
 import { shareableStack, manifest, privateInventory, publicMetricOptions, createSnapshot, shareCardSvg, setupPrompt } from './sharing.js';
@@ -16,7 +17,9 @@ import { buildOperator, lastSessionForProject, liveStatesFromEvents, projectHand
 import { detectAgents, launchAgent, openAgentCommand } from './open-agent.js';
 import { lifecyclePaths } from './lifecycle/paths.js';
 import { doctor } from './lifecycle/doctor.js';
-import { runtimeToken, removeRuntime, writeRuntime } from './lifecycle/runtime-record.js';
+import { readRuntime, runtimeToken, removeRuntimeIfOwned, writeRuntime } from './lifecycle/runtime-record.js';
+import { appendLifecycleEvent, readLifecycleEvents } from './lifecycle/log.js';
+import { configuredReportEndpoint, createBugReport, diagnosticsFromLocalState, submitBugReport, writeBugReportBundle } from './bug-report.js';
 import { autostartPlan } from './lifecycle/autostart.js';
 import { serviceStatus, startService, stopService } from './lifecycle/service.js';
 import { createRediscoveryScheduler } from './rediscovery.js';
@@ -37,7 +40,7 @@ const projectMetaFile = path.join(dataDir, 'project-metadata.json');
 const handoffFile = path.join(dataDir, 'handoffs.jsonl');
 const snapshotsDir = path.join(dataDir, 'snapshots');
 const openRouter = createOpenRouterService({ dataDir });
-let liveIndex = null, lastReason = 'starting', refreshing = false;
+let liveIndex = null, liveIndexMtime = 0, lastReason = 'starting', refreshing = false;
 const sampleSystem = createSystemSampler();
 let latestSystem = sampleSystem(), latestCapacity = readPlanCapacity();
 const liveActivityEvents = [], liveFileSizes = new Map(), liveFiles = new Map(), attentionSignals = new Map(), cursorLiveCarries = new Map(), previewSnapshots = new Map();
@@ -70,6 +73,7 @@ function writeIndex(value) {
   const temporary = `${indexFile}.${process.pid}.tmp`;
   fs.writeFileSync(temporary, JSON.stringify(value, null, 2));
   fs.renameSync(temporary, indexFile);
+  try { liveIndexMtime = fs.statSync(indexFile).mtimeMs; } catch {}
 }
 function refresh(reason = 'manual') {
   if (refreshing) return liveIndex;
@@ -87,16 +91,87 @@ function refresh(reason = 'manual') {
   refreshing = false;
   return liveIndex;
 }
+function startupLoadingIndex() {
+  const sources = currentSources();
+  return derive({
+    schemaVersion: SCHEMA_VERSION,
+    metricVersion: 1,
+    sources,
+    repositories: [],
+    sessions: [],
+    rawCapabilities: [],
+    capabilityUsageEvents: [],
+    harnessRuns: [],
+    editorHosts: [],
+    sourceStates: {},
+    adapterHealth: [],
+    adapterManifests: [],
+    observedIdentities: [],
+    tokenVisualScale: null,
+    permissions: sources.permissions,
+    errors: [],
+    diagnostics: { initialScan: 'pending' }
+  });
+}
 function index() {
-  if (liveIndex) return liveIndex;
+  if (liveIndex) {
+    try {
+      const mtime = fs.statSync(indexFile).mtimeMs;
+      if (mtime > liveIndexMtime) {
+        const stored = readStoredIndex();
+        if (stored) { liveIndex = decorate(stored); liveIndexMtime = mtime; }
+      }
+    } catch {}
+    return liveIndex;
+  }
   if (!fs.existsSync(indexFile)) return refresh('startup');
   const stored = readStoredIndex();
   if (!stored) return refresh('index-recovery');
   const needsRescan = (stored.schemaVersion || 0) < SCHEMA_VERSION || (stored.sessions || []).some((session) => !session.provider || !session.host || (session.tokens && Object.values(session.tokens).some(Boolean) && !session.tokenDays));
   if (needsRescan) return refresh('schema-identity');
+  try { liveIndexMtime = fs.statSync(indexFile).mtimeMs; } catch {}
   return (liveIndex = decorate(stored));
 }
-function body(req) { return new Promise((resolve) => { let text = ''; req.on('data', (d) => text += d); req.on('end', () => { try { resolve(JSON.parse(text || '{}')); } catch { resolve({}); } }); }); }
+function body(req, { maxBytes = 8 * 1024 * 1024 } = {}) { return new Promise((resolve) => { let text = ''; let size = 0; let tooLarge = false; req.on('data', (d) => { size += Buffer.byteLength(d); if (size <= maxBytes) text += d; else tooLarge = true; }); req.on('end', () => { if (tooLarge) return resolve({ __error: 'request-too-large' }); try { resolve(JSON.parse(text || '{}')); } catch { resolve({}); } }); }); }
+
+function dashboardVersion() {
+  try { return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version || null; } catch { return null; }
+}
+function dashboardCommit() {
+  try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { return null; }
+}
+async function localBugDiagnostics() {
+  const stored = readStoredIndex();
+  // Avoid a loopback self-request while the diagnostics endpoint is being
+  // served. The request can be useful from the stopped CLI, but from the
+  // owned server process its runtime record is already authoritative.
+  const runtime = readRuntime(paths.runtimeFile);
+  const status = runtime?.pid === process.pid
+    ? { state: 'running', runtime }
+    : await serviceStatus(paths, path.resolve(process.argv[1]));
+  const settings = loadSettings(dataDir);
+  const recent = readLifecycleEvents(paths.lifecycleFile, 1).at(-1);
+  const sourceStates = stored?.sourceStates || {};
+  const adapters = Object.entries(sourceStates).map(([id, state]) => ({
+    id,
+    state: state?.connection?.state || state?.active?.state || state?.installed?.state || 'unknown',
+    installed: state?.installed?.state === 'detected',
+    historical: ['observed', 'historical'].includes(state?.history?.state),
+    active: ['active', 'working'].includes(state?.active?.state),
+    connected: state?.connection?.state === 'connected',
+    capabilities: []
+  }));
+  return diagnosticsFromLocalState({
+    dataDir,
+    version: dashboardVersion(),
+    commit: dashboardCommit(),
+    dataSchemaVersion: stored?.schemaVersion || null,
+    lifecycle: { state: status.state, port: status.runtime?.port || 4177, startupStage: recent?.stage || null, startupDurationMs: recent?.durationMs || null },
+    permissions: settings.permissions,
+    adapters,
+    counts: { projects: stored?.projects?.length || stored?.repositories?.length || 0, sessions: stored?.sessions?.length || 0, capabilities: stored?.capabilities?.length || 0, usageObservations: stored?.efficiency?.foundation?.usageObservations?.length || 0 }
+  });
+}
 function contentType(file) {
   if (file.endsWith('.js')) return 'text/javascript';
   if (file.endsWith('.css')) return 'text/css';
@@ -289,8 +364,38 @@ function json(res, value, status = 200) {
 }
 function hasSession(req, token) { return String(req.headers.cookie || '').split(';').some((value) => value.trim() === `ai_dashboard_session=${token}`); }
 export function serve({ port = 4177 } = {}) {
+  const lifecycle = (event) => appendLifecycleEvent(paths.lifecycleFile, event);
+  const startedAt = Date.now();
+  lifecycle({ stage: 'serve-start', message: `Starting local dashboard on port ${port}.` });
   const sources = currentSources();
   const rediscovery = createRediscoveryScheduler({ run: refresh });
+  let backgroundScan = null;
+  const startBackgroundDiscovery = () => {
+    if (backgroundScan && backgroundScan.exitCode == null) return;
+    const scanStarted = Date.now();
+    lifecycle({ stage: 'discovery-start', message: 'Initial local discovery started in a worker process.' });
+    try {
+      backgroundScan = spawnProcess(process.execPath, [path.resolve(process.argv[1]), 'scan'], { detached: true, stdio: 'ignore', env: { ...process.env, AI_DASHBOARD_DATA_DIR: dataDir } });
+      backgroundScan.once('error', (error) => lifecycle({ stage: 'discovery-error', code: error?.code || 'DISCOVERY_ERROR', message: error?.message || 'Initial local discovery could not start.', durationMs: Date.now() - scanStarted }));
+      backgroundScan.once('exit', (code, signal) => {
+        backgroundScan = null;
+        // Only invalidate the cached/loading view after a scan actually
+        // produced a normalized index. A failed worker must not make the next
+        // browser request synchronously retry the same expensive scan.
+        if (code === 0 && fs.existsSync(indexFile)) liveIndex = null;
+        lifecycle({ stage: code === 0 ? 'discovery-complete' : 'discovery-error', code: code === 0 ? null : 'DISCOVERY_EXIT', message: code === 0 ? 'Initial local discovery completed.' : `Initial local discovery exited (${signal || code}).`, durationMs: Date.now() - scanStarted });
+      });
+      backgroundScan.unref();
+    } catch (error) {
+      backgroundScan = null;
+      lifecycle({ stage: 'discovery-error', code: error?.code || 'DISCOVERY_ERROR', message: error?.message || 'Initial local discovery could not start.', durationMs: Date.now() - scanStarted });
+    }
+  };
+  // Seed the server from the cached index (or a cheap empty shape) before
+  // binding. A first scan must never be required before loopback liveness.
+  const stored = readStoredIndex();
+  liveIndex = decorate(stored || startupLoadingIndex());
+  if (stored) { try { liveIndexMtime = fs.statSync(indexFile).mtimeMs; } catch {} }
   latestCapacity = capacitySnapshot();
   rememberLiveFiles('Claude', sources.claudeRoot);
   rememberLiveFiles('Codex', sources.codexRoot);
@@ -309,11 +414,20 @@ export function serve({ port = 4177 } = {}) {
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/api/health') return json(res, { state: 'ok', localOnly: true, instanceId: req.headers['x-ai-dashboard-control'] === controlToken ? instanceId : null });
+    if (url.pathname === '/api/bug-report/diagnostics' && req.method === 'GET') {
+      const diagnostics = await localBugDiagnostics();
+      return json(res, { diagnostics, endpointConfigured: Boolean(configuredReportEndpoint()) });
+    }
     if (url.pathname === '/api/control/stop' && req.method === 'POST') {
       const origin = req.headers.origin || '';
       if (req.headers['x-ai-dashboard-control'] !== controlToken || origin !== localOrigin) return json(res, { error: 'Unauthorized local control request.' }, 403);
       json(res, { state: 'stopping' });
-      setTimeout(() => server.close(), 10).unref();
+      setTimeout(() => {
+        server.close();
+        // Browser keep-alive sockets must not make an owned stop appear to
+        // fail indefinitely. This only closes connections on this server.
+        server.closeAllConnections?.();
+      }, 10).unref();
       return;
     }
     const writes = req.method === 'POST';
@@ -375,6 +489,19 @@ export function serve({ port = 4177 } = {}) {
       return json(res, { foundation: liveIndex.efficiency.foundation });
     }
     if (url.pathname === '/api/status') { const x = index(); return json(res, { state: 'Live', lastUpdated: x.summary.lastScanAt, reason: x.summary.refreshReason || lastReason, diagnostics: x.summary.diagnostics }); }
+    if (url.pathname === '/api/bug-report' && req.method === 'POST') {
+      const b = await body(req);
+      if (b.__error === 'request-too-large') return json(res, { error: 'Bug report is too large. Use one PNG, JPEG, or WebP screenshot under 5 MB.' }, 413);
+      try {
+        const includeDiagnostics = b.includeDiagnostics !== false;
+        const diagnostics = includeDiagnostics ? (b.diagnostics || await localBugDiagnostics()) : {};
+        const report = createBugReport({ description: b.description, context: b.context, includeDiagnostics, diagnostics, screenshot: b.includeScreenshot === false ? null : b.screenshot });
+        const saved = writeBugReportBundle(dataDir, report, { screenshot: b.includeScreenshot === false ? null : b.screenshot });
+        let submission = { state: 'not-configured', reportId: report.reportId };
+        if (b.send === true) submission = await submitBugReport(report, { screenshot: b.includeScreenshot === false ? null : b.screenshot });
+        return json(res, { state: submission.state === 'sent' ? 'sent' : 'saved', reportId: report.reportId, relativeDirectory: saved.relativeDirectory, endpointConfigured: Boolean(configuredReportEndpoint()), submission });
+      } catch (error) { return json(res, { error: error?.message || 'Could not save the bug report.' }, 400); }
+    }
     if (url.pathname === '/api/live-state') { res.setHeader('Cache-Control', 'no-store, max-age=0'); return json(res, liveState()); }
     if (url.pathname === '/api/live') { res.setHeader('Cache-Control', 'no-store, max-age=0'); return json(res, liveState().activity); }
     if (url.pathname === '/api/system') { res.setHeader('Cache-Control', 'no-store, max-age=0'); return json(res, latestSystem); }
@@ -460,10 +587,17 @@ export function serve({ port = 4177 } = {}) {
     res.setHeader('Content-Type', contentType(full));
     res.end(fs.readFileSync(full));
   });
-  server.once('close', () => removeRuntime(paths.runtimeFile));
+  server.once('close', () => {
+    if (backgroundScan && backgroundScan.exitCode == null) { try { backgroundScan.kill('SIGTERM'); } catch {} }
+    if (removeRuntimeIfOwned(paths.runtimeFile, { pid: process.pid, instanceId })) lifecycle({ stage: 'server-close', message: 'Owned dashboard server stopped.' });
+  });
   server.once('error', (error) => {
-    console.error(`Dashboard server failed: ${error.message}`);
-    removeRuntime(paths.runtimeFile);
+    const message = `Dashboard server failed: ${error.message}`;
+    console.error(message);
+    lifecycle({ stage: 'server-error', code: error.code || 'SERVER_ERROR', message, durationMs: Date.now() - startedAt });
+    // A failed second process must never erase a healthy process's ownership
+    // record. Only the instance that wrote runtime.json may remove it.
+    removeRuntimeIfOwned(paths.runtimeFile, { pid: process.pid, instanceId });
   });
   server.listen(port, '127.0.0.1', () => {
     const address = server.address();
@@ -471,11 +605,20 @@ export function serve({ port = 4177 } = {}) {
     const url = `http://127.0.0.1:${actualPort}`;
     localOrigin = url;
     writeRuntime(paths.runtimeFile, { version: 1, pid: process.pid, script: path.resolve(process.argv[1]), startedAt: new Date().toISOString(), url, port: actualPort, instanceId, controlToken, dataDir });
+    lifecycle({ stage: 'listening', message: `Loopback server listening on port ${actualPort}.`, durationMs: Date.now() - startedAt });
     console.log(`AI Development Dashboard → ${url}`);
     // A prior index is only a cache. Bind first so `open` remains responsive,
-    // then always perform the bounded local discovery pass without any network
-    // access. The periodic fallback and adapter-root watchers stay active.
-    setTimeout(() => rediscovery.startup(), 0).unref();
+    // then perform discovery in a child process so a slow local scan cannot
+    // block health, stop, or the first browser request.
+    // Keep a short liveness window after bind. Discovery is synchronous local
+    // work today; delaying it lets `open` complete its health handshake before
+    // a slow project scan can occupy the event loop. The UI/API can then load
+    // the same cached data while discovery continues.
+    const startupDiscoveryDelayMs = 50;
+    lifecycle({ stage: 'discovery-scheduled', message: `Initial local discovery scheduled in ${startupDiscoveryDelayMs}ms.` });
+    setTimeout(() => {
+      startBackgroundDiscovery();
+    }, startupDiscoveryDelayMs).unref();
   });
   return server;
 }
@@ -492,14 +635,38 @@ export async function main(args = process.argv.slice(2)) {
   const requestedPort = argValue(args, '--port', '4177');
   const port = Number.isInteger(Number(requestedPort)) && Number(requestedPort) >= 0 ? Number(requestedPort) : 4177;
   if (['help', '--help', '-h'].includes(command)) {
-    console.log('AI Development Dashboard\n\nUsage: ai-dashboard <command>\n\nCommands:\n  open [--port N]  Start the owned local service and open the dashboard\n  status           Show owned service status\n  stop             Stop only the owned dashboard service\n  update           Safely update dashboard software (not AI tools/models)\n  doctor           Check local lifecycle health\n  scan             Run one local index scan\n  serve            Run the local server in the foreground');
+    console.log('AI Development Dashboard\n\nUsage: ai-dashboard <command>\n\nCommands:\n  open [--port N]  Start the owned local service and open the dashboard\n  status           Show owned service status\n  stop             Stop only the owned dashboard service\n  update           Safely update dashboard software (not AI tools/models)\n  report-bug       Save a privacy-safe local bug report bundle\n  doctor           Check local lifecycle health\n  scan             Run one local index scan\n  serve            Run the local server in the foreground');
+    return 0;
+  }
+  if (command === 'report-bug') {
+    let description = argValue(args, '--description', null);
+    if (!description && process.stdin.isTTY) {
+      const readline = await import('node:readline/promises');
+      const prompt = readline.createInterface({ input: process.stdin, output: process.stdout });
+      try { description = await prompt.question('What happened? '); } finally { prompt.close(); }
+    }
+    description ||= 'Dashboard startup or runtime issue. Add details before sharing this bundle.';
+    const includeDiagnostics = !args.includes('--no-diagnostics');
+    const diagnostics = includeDiagnostics ? await localBugDiagnostics() : {};
+    const report = createBugReport({ description, includeDiagnostics, diagnostics });
+    const saved = writeBugReportBundle(dataDir, report);
+    let submission = null;
+    if (args.includes('--send')) submission = await submitBugReport(report);
+    console.log(`Report bundle created: ${saved.relativeDirectory}\nReport ID: ${report.reportId}`);
+    if (submission?.state === 'sent') console.log(`Report sent. Reference: ${submission.reference}`);
+    else if (submission?.state === 'error') console.log(`Report submission failed; the local bundle was preserved. ${submission.error}`);
+    else if (configuredReportEndpoint()) console.log('A report endpoint is configured, but nothing was sent. Re-run with --send to submit explicitly.');
+    else console.log('No report endpoint is configured. Attach this local bundle to your support request manually.');
     return 0;
   }
   if (command === 'scan') { const data = refresh(); console.log(`Indexed ${data.projects.length} projects, ${data.sessions.length} sessions, ${data.capabilities.length} capabilities.`); return 0; }
   if (command === 'serve') { serve({ port }); return 0; }
   if (command === 'start' || command === 'open') {
-    const status = await startService({ paths, script, port });
-    if (status.state !== 'running') { console.error(status.error || 'Unable to start dashboard.'); return 1; }
+    const status = await startService({ paths, script, port, lifecycleLog: (event) => appendLifecycleEvent(paths.lifecycleFile, event) });
+    if (status.state !== 'running') {
+      console.error(`AI Dashboard could not start.\n\nReason: ${status.error || 'Unable to start dashboard.'}\n\nTry:\n  ai-dashboard doctor\n  ai-dashboard report-bug`);
+      return 1;
+    }
     if (command === 'open' && !args.includes('--no-open')) await openBrowser(status.runtime.url);
     console.log(status.runtime.url); return 0;
   }
@@ -508,8 +675,8 @@ export async function main(args = process.argv.slice(2)) {
   if (command === 'doctor') { const result = doctor(paths, script); console.log(args.includes('--json') ? JSON.stringify(result, null, 2) : result.ok ? 'ok' : 'needs attention'); return result.ok ? 0 : 1; }
   if (command === 'setup') {
     fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-    const status = await startService({ paths, script, port });
-    if (status.state !== 'running') { console.error(status.error || 'Unable to start dashboard setup.'); return 1; }
+    const status = await startService({ paths, script, port, lifecycleLog: (event) => appendLifecycleEvent(paths.lifecycleFile, event) });
+    if (status.state !== 'running') { console.error(`AI Dashboard could not start.\n\nReason: ${status.error || 'Unable to start dashboard setup.'}\n\nTry:\n  ai-dashboard doctor\n  ai-dashboard report-bug`); return 1; }
     if (!args.includes('--no-open')) await openBrowser(status.runtime.url);
     console.log(`Dashboard setup is ready at ${status.runtime.url}`); return 0;
   }
@@ -539,6 +706,6 @@ export async function main(args = process.argv.slice(2)) {
     console.log(`Updated successfully. ${result.previousHead?.slice(0, 8) || 'previous'} → ${result.head?.slice(0, 8) || 'current'}`); return 0;
   }
   if (command === 'uninstall') { console.log(JSON.stringify({ state: 'preview', package: 'Use your npm package manager to remove the package.', retainedData: dataDir, autostart: 'No job is installed by this Phase 1 foundation.' }, null, 2)); return 0; }
-  console.error('Usage: ai-dashboard [serve|scan|setup|start|open|status|stop|doctor|autostart|update|uninstall]'); return 1;
+  console.error('Usage: ai-dashboard [serve|scan|setup|start|open|status|stop|doctor|report-bug|autostart|update|uninstall]'); return 1;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().then((code) => { if (code) process.exitCode = code; });

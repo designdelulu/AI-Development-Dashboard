@@ -56,11 +56,13 @@ Runtime presentation is derived from adapter manifests and normalized sessions. 
 
 `update` is manual and limited to dashboard software. The current linked Git-checkout mode resolves the actual checkout, refuses dirty/detached/diverged histories, fetches only after the explicit command, and uses `git merge --ff-only`; it never resets, stashes, force-checks out, or touches dashboard data. If its deterministic lockfile workflow changes, it runs only the committed lockfile install. It restarts only a previously running owned service after a successful update. Other install modes are intentionally non-mutating until their package/standalone updater is reviewed.
 
+Startup separates process spawn, loopback bind/liveness, and background discovery. `open` refuses an occupied port before spawning a second service, returns child bind/exit categories when startup fails, and never removes another instance's runtime record. The initial scan is delegated to an owned child process after the listener is ready; a newer normalized index is picked up by the server's mtime check. Stopping the owned service also stops its owned startup scan. Lifecycle events are bounded and sanitized for optional local bug-report diagnostics.
+
 Autostart is off. Phase 1 generates per-user LaunchAgent, Task Scheduler, or systemd-user plans only; it neither creates a job nor publishes a package. The foundation does not yet expose an enable toggle because it has no owned install/remove implementation.
 
 ## Live refresh
 
-The local server scans once at startup, watches the configured local source roots with a 7.5-second debounce, and performs a five-minute fallback incremental check. Session files retain their source fingerprint, so unchanged transcripts are reused rather than reparsed. The browser checks the normalized index every 15 seconds and redraws only after a new index timestamp. A mostly idle dashboard performs no repeated transcript parsing; a watcher event triggers an incremental scan. Git-derived project metrics are refreshed only with that scan.
+An owned startup scan worker performs the initial discovery after the listener is ready. The server watches the configured local source roots with a 7.5-second debounce and performs a five-minute fallback incremental check. Session files retain their source fingerprint, so unchanged transcripts are reused rather than reparsed. The browser checks the normalized index every 15 seconds and redraws only after a new index timestamp. A mostly idle dashboard performs no repeated transcript parsing; a watcher event triggers an incremental scan. Git-derived project metrics are refreshed only with that scan.
 
 ## Interface rationale
 
