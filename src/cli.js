@@ -22,7 +22,7 @@ import { serviceStatus, startService, stopService } from './lifecycle/service.js
 import { validateProjectRoots } from './onboarding.js';
 import { createOpenRouterService } from './openrouter/service.js';
 import { disableAntigravityCapture, enableAntigravityCapture, previewAntigravityCapture } from './antigravity.js';
-import { applyEfficiencyMetadata, createCycle, loadEfficiencyMetadata, recordOutcome, removeCycle, saveEfficiencyMetadata } from './efficiency-store.js';
+import { applyEfficiencyMetadata, beginComparisonTracking, createCycle, loadEfficiencyMetadata, recordOutcome, removeCycle, saveEfficiencyMetadata } from './efficiency-store.js';
 import { efficiencySnapshot } from './efficiency.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -48,7 +48,9 @@ function recordHandoff(entry) { fs.mkdirSync(dataDir, { recursive: true }); fs.a
 function decorate(result) {
   const withMeta = applyProjectMetadata(result, projectMetadata());
   const handoffs = loadHandoffs();
-  const foundation = applyEfficiencyMetadata(withMeta.efficiency?.foundation || {}, loadEfficiencyMetadata(dataDir));
+  const metadata = beginComparisonTracking(loadEfficiencyMetadata(dataDir));
+  if (metadata.comparison.instrumentationStartedAt) saveEfficiencyMetadata(dataDir, metadata);
+  const foundation = applyEfficiencyMetadata(withMeta.efficiency?.foundation || {}, metadata);
   const decorated = { ...withMeta, efficiency: { ...(withMeta.efficiency || {}), foundation } };
   return { ...decorated, handoffs, achievements: achievementsFor(decorated, { handoffs }) };
 }

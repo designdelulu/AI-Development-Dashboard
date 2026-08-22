@@ -20,7 +20,7 @@ import { analyticsSchema, normalizeAnalytics } from '../src/openrouter/analytics
 import { shareableStack } from '../src/sharing.js';
 import { antigravityCapacity, antigravityCaptureConfigured, antigravitySettingsPath, antigravityStatePath, disableAntigravityCapture, enableAntigravityCapture, normalizeAntigravityStatus, previewAntigravityCapture, readAntigravitySettings } from '../src/antigravity.js';
 import { EFFICIENCY_EVIDENCE, buildEfficiencyFoundation, classifyValidationCommand, detectedModelSwitches, efficiencySnapshot, inferPossibleRework, structuralEventsFromRecord } from '../src/efficiency.js';
-import { applyEfficiencyMetadata, createCycle, loadEfficiencyMetadata, recordOutcome, saveEfficiencyMetadata } from '../src/efficiency-store.js';
+import { applyEfficiencyMetadata, beginComparisonTracking, createCycle, EFFICIENCY_METADATA_VERSION, loadEfficiencyMetadata, recordOutcome, saveEfficiencyMetadata } from '../src/efficiency-store.js';
 import { readPlanCapacity } from '../src/capacity.js';
 
 const temp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
@@ -320,6 +320,22 @@ test('efficiency user outcomes and cycles are reversible local metadata', () => 
   assert.equal(loadEfficiencyMetadata(folder).cycles[0].boundaryMethod, 'user-confirmed-grouping');
   const applied = applyEfficiencyMetadata(buildEfficiencyFoundation({ sessions: [efficiencySession()] }), recordOutcome({}, 'work:missing', 'rejected'));
   assert.equal(applied.outcomes.some((item) => item.evidenceClass === 'user-confirmed'), true);
+});
+
+test('efficiency comparison metadata migrates old local records without promoting history', () => {
+  const folder = temp('efficiency-comparison-migration');
+  fs.writeFileSync(path.join(folder, 'efficiency-metadata.json'), JSON.stringify({ version: 1, outcomes: { 'work:a': { state: 'accepted', recordedAt: '2026-08-01T00:00:00.000Z' } }, cycles: [{ workBlockIds: ['work:a', 'work:b'] }] }));
+  const migrated = loadEfficiencyMetadata(folder);
+  assert.equal(migrated.version, EFFICIENCY_METADATA_VERSION);
+  assert.equal(migrated.outcomes['work:a'].state, 'accepted');
+  assert.equal(migrated.cycles[0].taskKey, null);
+  assert.equal(migrated.comparison.instrumentationStartedAt, null);
+  const tracked = beginComparisonTracking(migrated, new Date('2026-08-22T00:00:00.000Z'));
+  assert.equal(tracked.comparison.instrumentationStartedAt, '2026-08-22T00:00:00.000Z');
+  const created = createCycle(tracked, ['work:a', 'work:b'], { taskKey: 'task:opaque-1', privateLabel: 'Private local label', validationContract: { targetId: 'validator:test', kind: 'test', strength: 'V2' } });
+  assert.equal(created.cycle.validationContract.strength, 'V2');
+  assert.equal(created.cycle.privateLabel, 'Private local label');
+  assert.equal(JSON.stringify(created.metadata).includes('prompt body'), false);
 });
 
 test('runtime records and autostart plans are per-user, opt-in foundations', () => {
