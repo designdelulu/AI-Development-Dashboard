@@ -89,7 +89,7 @@ Cursor **local token telemetry** may be exact (context meter / rare non-zero bub
 
 ## Privacy
 
-No network request is made by the scanner or server. `.dashboard-data/` is local and gitignored. Share Story uses a separate allowlisted snapshot. Details: [PRIVACY.md](PRIVACY.md), [docs/SHARING-PRIVACY.md](docs/SHARING-PRIVACY.md).
+The Local Core makes no network requests: scanning, the localhost server, and local views remain offline. Connected Services are optional and make requests only after explicit connection to the selected provider. OpenRouter Phase 2A uses an `OPENROUTER_MANAGEMENT_KEY` supplied to the dashboard process; only aggregate analytics metadata/usage and credits are requested, never prompts, code, or transcripts. `.dashboard-data/` is local and gitignored; it stores an opaque credential reference, never a key. Share Story uses a separate allowlisted snapshot. Details: [PRIVACY.md](PRIVACY.md), [docs/SHARING-PRIVACY.md](docs/SHARING-PRIVACY.md).
 
 ## Supported local sources
 
@@ -100,6 +100,7 @@ No network request is made by the scanner or server. `.dashboard-data/` is local
 | Cursor | Safe session presence, encoded project attribution, live WAL/`agent-tools` mtime, local token evidence when safe fields exist | Exact, Estimated, Mixed, or Unavailable depending on the local record. Cursor still tracks usage in its own account dashboard. Transcript files are often empty while an agent is working. |
 | Git | Repository identity and descriptive change activity | LOC and churn are descriptive, not productivity scores. |
 | VS Code | Installed AI-related extensions only | Not counted as AI activity. |
+| OpenRouter (optional Connected Service) | Provider-reported aggregate analytics, credits, observed models/providers | Disabled by default; manual sync only; no project attribution without an explicit future mapping. |
 
 ## Limitations
 

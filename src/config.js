@@ -4,7 +4,7 @@ import os from 'node:os';
 import { normalizePermissions } from './permissions.js';
 import { onboardingState } from './onboarding.js';
 
-export const SETTINGS_VERSION = 2;
+export const SETTINGS_VERSION = 3;
 
 export const CANDIDATE_PROJECT_ROOTS = ['Dropbox/Projects', 'Projects'];
 
@@ -22,18 +22,53 @@ export function settingsFile(dataDir) {
   return path.join(dataDir, 'settings.json');
 }
 
+// Connected-service settings deliberately carry configuration only. Credentials
+// are resolved at use time from an approved external source and must never be
+// copied into settings.json.
+export function connectedServicesState(value = {}) {
+  const openRouter = value?.openRouter || {};
+  return {
+    openRouter: {
+      enabled: openRouter.enabled === true,
+      credentialRef: openRouter.credentialRef === 'env:OPENROUTER_MANAGEMENT_KEY' ? 'env:OPENROUTER_MANAGEMENT_KEY' : null,
+      connectedAt: typeof openRouter.connectedAt === 'string' ? openRouter.connectedAt : null,
+      lastSyncAt: typeof openRouter.lastSyncAt === 'string' ? openRouter.lastSyncAt : null,
+      lastError: typeof openRouter.lastError === 'string' ? openRouter.lastError : null
+    }
+  };
+}
+
+function withoutCredentialValues(value) {
+  if (Array.isArray(value)) return value.map(withoutCredentialValues);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !/(^|[_-])(api[_-]?key|credential|secret|token|password)([_-]|$)/i.test(key) && !/openrouter.*key/i.test(key))
+    .map(([key, item]) => [key, withoutCredentialValues(item)]));
+}
+
+function normalized(value) {
+  const base = value && typeof value === 'object' ? withoutCredentialValues(value) : {};
+  return {
+    ...base,
+    version: SETTINGS_VERSION,
+    permissions: normalizePermissions(base.permissions),
+    onboarding: onboardingState(base.onboarding),
+    connectedServices: connectedServicesState(base.connectedServices)
+  };
+}
+
 export function loadSettings(dataDir) {
   try {
     const value = JSON.parse(fs.readFileSync(settingsFile(dataDir), 'utf8'));
-    return value && typeof value === 'object' ? { ...value, version: SETTINGS_VERSION, permissions: normalizePermissions(value.permissions), onboarding: onboardingState(value.onboarding) } : { version: SETTINGS_VERSION, permissions: normalizePermissions(), onboarding: onboardingState() };
+    return normalized(value);
   } catch {
-    return { version: SETTINGS_VERSION, permissions: normalizePermissions(), onboarding: onboardingState() };
+    return normalized();
   }
 }
 
 export function saveSettings(dataDir, patch = {}) {
   const current = loadSettings(dataDir);
-  const next = { ...current, ...patch, version: SETTINGS_VERSION, permissions: normalizePermissions(patch.permissions || current.permissions), onboarding: onboardingState(patch.onboarding || current.onboarding) };
+  const next = normalized({ ...current, ...patch, permissions: patch.permissions || current.permissions, onboarding: patch.onboarding || current.onboarding, connectedServices: patch.connectedServices || current.connectedServices });
   fs.mkdirSync(dataDir, { recursive: true });
   fs.writeFileSync(settingsFile(dataDir), JSON.stringify(next, null, 2));
   return next;

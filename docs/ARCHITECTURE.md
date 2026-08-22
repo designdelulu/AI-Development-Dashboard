@@ -10,6 +10,12 @@ Cursor records ─┤         └─ capability manifest + read-only context
 capability files ┘                             └─ source lifecycle state
 ```
 
+## Connected-service boundary
+
+OpenRouter is a registry-backed `connected-service` adapter, not a local scanner special case. Its service boundary is constructed without I/O and makes a request only after explicit Connect or manual Sync, a distinct `networkConnected` permission, and an externally supplied management credential. Phase 2A allowlists only analytics metadata, aggregate analytics query, and credits. The service caches normalized aggregates locally with source and sync timestamps; raw responses, request IDs, key metadata, prompts, and credentials are not retained.
+
+OpenRouter is the gateway/account source. Underlying provider and model identities remain separate, and agent/host are null unless independent local evidence identifies them. Aggregate remote history is never placed in Live Agent Activity. Projects remain Unknown unless an explicit deterministic mapping is introduced.
+
 ## Canonical identity and confidence
 
 Git root under the configured projects root is the canonical project identity. A session is **Confirmed** only when its recorded working directory resolves below that root. Cursor folders are matched from their encoded project path and are **Strongly inferred**; unmapped records remain Unknown/Weakly inferred rather than being silently assigned.

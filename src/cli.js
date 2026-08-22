@@ -20,6 +20,7 @@ import { runtimeToken, removeRuntime, writeRuntime } from './lifecycle/runtime-r
 import { autostartPlan } from './lifecycle/autostart.js';
 import { serviceStatus, startService, stopService } from './lifecycle/service.js';
 import { validateProjectRoots } from './onboarding.js';
+import { createOpenRouterService } from './openrouter/service.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const paths = lifecyclePaths({ root });
@@ -28,6 +29,7 @@ const indexFile = path.join(dataDir, 'index.json');
 const projectMetaFile = path.join(dataDir, 'project-metadata.json');
 const handoffFile = path.join(dataDir, 'handoffs.jsonl');
 const snapshotsDir = path.join(dataDir, 'snapshots');
+const openRouter = createOpenRouterService({ dataDir });
 let liveIndex = null, lastReason = 'starting', refreshing = false;
 const sampleSystem = createSystemSampler();
 let latestSystem = sampleSystem(), latestCapacity = readPlanCapacity();
@@ -194,8 +196,15 @@ function watchSources() {
     timer = setTimeout(() => refresh('project source change'), 7_500);
   };
   for (const [, source, agent] of sourceWatchList(sources)) {
-    try { fs.watch(source, { recursive: true }, (_event, filename) => changed(agent, source, filename)); }
-    catch { try { fs.watch(source, (_event, filename) => changed(agent, source, filename)); } catch {} }
+    const attach = (options) => {
+      const watcher = fs.watch(source, options, (_event, filename) => changed(agent, source, filename));
+      // A system watch limit must not take down the local dashboard; scanning
+      // and the periodic fallback remain available when a watch is unavailable.
+      watcher.on('error', () => watcher.close());
+      return watcher;
+    };
+    try { attach({ recursive: true }); }
+    catch { try { attach({}); } catch {} }
   }
   setInterval(() => refresh('periodic check'), 300000).unref();
 }
@@ -244,6 +253,16 @@ export function serve({ port = 4177 } = {}) {
     const writes = req.method === 'POST';
     if (writes && (req.headers.origin !== localOrigin || !hasSession(req, sessionToken))) return json(res, { error: 'Unauthorized local browser request.' }, 403);
     if (url.pathname === '/api/data') return json(res, index());
+    if (url.pathname === '/api/openrouter' && req.method === 'GET') return json(res, openRouter.state());
+    if (url.pathname === '/api/openrouter/connect' && req.method === 'POST') {
+      try { return json(res, await openRouter.connect({ period: (await body(req)).period || 'today' })); }
+      catch (error) { return json(res, { ...openRouter.state(), error: error?.code || 'connector-error' }, 400); }
+    }
+    if (url.pathname === '/api/openrouter/sync' && req.method === 'POST') {
+      try { return json(res, await openRouter.sync({ period: (await body(req)).period || 'today' })); }
+      catch (error) { return json(res, { ...openRouter.state(), error: error?.code || 'connector-error' }, 400); }
+    }
+    if (url.pathname === '/api/openrouter/disconnect' && req.method === 'POST') return json(res, openRouter.disconnect());
     if (url.pathname === '/api/scan' && req.method === 'POST') return json(res, refresh('manual refresh'));
     if (url.pathname === '/api/status') { const x = index(); return json(res, { state: 'Live', lastUpdated: x.summary.lastScanAt, reason: x.summary.refreshReason || lastReason, diagnostics: x.summary.diagnostics }); }
     if (url.pathname === '/api/live-state') { res.setHeader('Cache-Control', 'no-store, max-age=0'); return json(res, liveState()); }

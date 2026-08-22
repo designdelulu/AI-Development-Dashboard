@@ -1,6 +1,10 @@
 # Privacy
 
-AI Development Dashboard is a local-first product. The scanner and localhost server do not make network requests. They read supported local metadata and write derived analytics only under `.dashboard-data/`, which is gitignored.
+AI Development Dashboard is local-first. The Local Core—the scanner, localhost server, and local views—does not make network requests. It reads supported local metadata and writes derived analytics only under `.dashboard-data/`, which is gitignored.
+
+## Optional Connected Services
+
+Connected Services are disabled by default. When you explicitly connect OpenRouter and manually sync, the dashboard contacts only OpenRouter's analytics metadata/query and credits endpoints using a management key supplied to the dashboard process through `OPENROUTER_MANAGEMENT_KEY`. The key is not written to disk: settings retain only the opaque `env:OPENROUTER_MANAGEMENT_KEY` reference. The connector stores normalized aggregate model/provider, token, request, cost, and credit data with sync timestamps; it does not send or retain prompts, transcript bodies, source code, raw request IDs, account IDs, or API-key metadata. Disconnect disables future OpenRouter calls and forgets the reference while preserving already-normalized local aggregates.
 
 ## What is stored locally
 
@@ -16,12 +20,13 @@ AI Development Dashboard is a local-first product. The scanner and localhost ser
 - credentials, cookies, API keys, environment values
 - source code from observed projects
 - Claude/Cursor subscription account data
+- OpenRouter management credentials, raw request identifiers, account identifiers, or API-key metadata
 
 Cursor itself can show token usage in the Cursor account dashboard. This product does not scrape that dashboard. The local adapter may read `state.vscdb` **read-only** for `cursorDiskKV` token/context-meter metadata and text lengths. It never reads ItemTable auth keys, cookies, JWTs, or prompt bodies. Results are labelled Exact, Estimated, Mixed, or Unavailable. Official Usage CSV import remains a planned fallback.
 
 ## Sharing
 
-Share Stack, Manifest, Setup Prompt, and Share Story cards use an allowlisted public-safe snapshot. They exclude project names, notes, paths, prompts, credentials, and private capabilities. See [docs/SHARING-PRIVACY.md](docs/SHARING-PRIVACY.md).
+Share Stack, Manifest, Setup Prompt, and Share Story cards use an allowlisted public-safe snapshot. They exclude project names, notes, paths, prompts, credentials, raw OpenRouter request/key/account identifiers, and private capabilities. Aggregate OpenRouter values are not exported by Phase 2A. See [docs/SHARING-PRIVACY.md](docs/SHARING-PRIVACY.md).
 
 ## Public GitHub
 
