@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { lookupBinary } from './open-agent.js';
 import { cursorStorageRoot } from './live-files.js';
-import { clineInstallation } from './cline.js';
+import { clineInstallationState } from './cline.js';
 
 const exists = (value) => { try { return Boolean(value) && fs.statSync(value).isDirectory(); } catch { return false; } };
 const fileExists = (value) => { try { return Boolean(value) && fs.statSync(value).isFile(); } catch { return false; } };
@@ -29,10 +29,13 @@ export function discoverClosedTools({ homedir = os.homedir(), env = process.env,
     Codex: sourceState({ installed: Boolean(cli('codex', ['/opt/homebrew/bin', '/usr/local/bin'])) || exists(path.join(homedir, '.codex')), binary: cli('codex', ['/opt/homebrew/bin', '/usr/local/bin']), historyPaths: [codexRoot] }),
     Cursor: sourceState({ installed: Boolean(cli('cursor', ['/opt/homebrew/bin', '/usr/local/bin'])) || Boolean(app('Cursor') && exists(app('Cursor'))) || exists(path.join(homedir, '.cursor')), binary: cli('cursor', ['/opt/homebrew/bin', '/usr/local/bin']), appPath: app('Cursor'), historyPaths: [cursorRoot, cursorStorageRoot(homedir, platform)] }),
     Cline: (() => {
-      const installation = clineInstallation({ homeDir: homedir, env, platform });
+      const installation = clineInstallationState({ homeDir: homedir, env, platform });
+      const version = installation.extensionRecords.map((record) => record.version).filter(Boolean).sort().at(-1) || null;
+      const base = sourceState({ installed: Boolean(installation.binary || installation.root && exists(installation.root) || installation.extensions.length), binary: installation.binary, version, historyPaths: [installation.sessionsRoot, installation.dbFile], needsSession: true });
       return {
-        ...sourceState({ installed: Boolean(installation.binary || installation.root && exists(installation.root) || installation.extensions.length), binary: installation.binary, historyPaths: [installation.sessionsRoot, installation.dbFile], needsSession: true }),
-        installation: { sessionRoot: installation.sessionsRoot, sessionIndex: installation.dbFile, extensions: installation.extensions.length, cli: Boolean(installation.binary) }
+        ...base,
+        installed: { ...base.installed, evidence: [...new Set([...base.installed.evidence, ...installation.evidence.filter((item) => /extension/i.test(item))])], version },
+        installation: { sessionRoot: installation.sessionsRoot, sessionIndex: installation.dbFile, extensions: installation.extensions.length, cli: Boolean(installation.binary), hosts: installation.hosts, primaryHost: installation.primaryHost, cursorExtension: installation.cursorExtensions.length > 0, vscodeExtension: installation.vscodeExtensions.length > 0, versions: installation.extensionRecords.map((record) => record.version).filter(Boolean) }
       };
     })(),
     Antigravity: sourceState({ installed: Boolean(app('Antigravity') && exists(app('Antigravity'))) || exists(path.join(homedir, '.gemini', 'antigravity')) || Boolean(cli('agy', [path.join(homedir, '.gemini', 'antigravity-cli', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'])), appPath: app('Antigravity'), binary: cli('agy', [path.join(homedir, '.gemini', 'antigravity-cli', 'bin'), '/opt/homebrew/bin', '/usr/local/bin']), historyPaths: [path.join(homedir, '.gemini', 'antigravity')], historySupported: false, needsSession: true }),

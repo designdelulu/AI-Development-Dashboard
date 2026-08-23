@@ -37,7 +37,7 @@ export function isCursorAgentToolPath(file) {
 export function isClineLivePath(file) {
   const normal = normalizeLivePath(file);
   if (!normal || IGNORED.test(normal)) return false;
-  return /\/\.cline\/data\/sessions\//i.test(normal) && /\.(?:json|jsonl)$/i.test(normal) && !/sessions\.db|\.compaction\.json$/i.test(normal);
+  return /\/\.cline\/data\/sessions\//i.test(normal) && /\.(?:json|jsonl)$/i.test(normal) && !/sessions\.db|\.compaction\.json|\.messages\.json$/i.test(normal);
 }
 
 export function isClaudeLivePath(file) {

@@ -25,9 +25,18 @@ export function runtimeCatalog(manifests = [], sourceStates = {}, sessions = [])
   const byId = new Map(declared.map((item) => [item.id, item]));
   const observed = new Map();
 
+  const presentationFor = (runtime, state = {}) => {
+    const hosts = [...new Set((sessions || [])
+      .filter((session) => session?.adapterId === runtime.id && session.host)
+      .map((session) => session.host))];
+    const configuredHost = state.installation?.primaryHost || null;
+    const host = hosts.length === 1 ? hosts[0] : hosts.length > 1 ? 'Multiple hosts' : configuredHost || runtime.host;
+    return { ...runtime, host, observedHosts: hosts, sourceState: state };
+  };
+
   for (const runtime of declared) {
     const state = sourceStates[runtime.sourceKey] || {};
-    if (runtime.liveCapable && usableState(state)) observed.set(runtime.id, { ...runtime, sourceState: state });
+    if (runtime.liveCapable && usableState(state)) observed.set(runtime.id, presentationFor(runtime, state));
   }
 
   // A future adapter can omit presentation hints and still become visible once
@@ -40,9 +49,8 @@ export function runtimeCatalog(manifests = [], sourceStates = {}, sessions = [])
     const state = sourceStates[declaredRuntime.sourceKey] || {};
     if (!usableState(state)) continue;
     observed.set(declaredRuntime.id, {
-      ...declaredRuntime,
+      ...presentationFor(declaredRuntime, state),
       agent: session.runtimeAgent || declaredRuntime.agent,
-      host: session.host || declaredRuntime.host,
       sourceState: state
     });
   }

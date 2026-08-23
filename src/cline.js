@@ -43,24 +43,80 @@ function extensionRoots(homeDir, platform = process.platform) {
   return roots;
 }
 
+// Cursor keeps extensions separate from vanilla VS Code. The dot-directory is
+// the current macOS/Linux location; the application-support location is kept
+// as a compatibility probe for builds that follow the VS Code layout.
+function cursorExtensionRoots(homeDir, platform = process.platform) {
+  const roots = [path.join(homeDir, '.cursor', 'extensions')];
+  if (platform === 'darwin') roots.push(path.join(homeDir, 'Library', 'Application Support', 'Cursor', 'User', 'extensions'));
+  if (platform === 'win32') roots.push(path.join(homeDir, 'AppData', 'Roaming', 'Cursor', 'User', 'extensions'));
+  if (platform !== 'darwin' && platform !== 'win32') roots.push(path.join(homeDir, '.config', 'Cursor', 'User', 'extensions'));
+  return roots;
+}
+
+function extensionRecordsFromRoots(roots, host) {
+  return roots.flatMap((base) => {
+    let entries = [];
+    try { entries = fs.readdirSync(base, { withFileTypes: true }); } catch {}
+    return entries.filter((entry) => entry.isDirectory() && CLINE_EXTENSION_IDS.some((id) => entry.name === id || entry.name.startsWith(`${id}-`))).map((entry) => {
+      const extensionPath = path.join(base, entry.name);
+      let manifest = {};
+      try { manifest = JSON.parse(fs.readFileSync(path.join(extensionPath, 'package.json'), 'utf8')); } catch {}
+      return {
+        path: extensionPath,
+        host,
+        id: `${manifest.publisher || entry.name.split('-')[0]}.${manifest.name || entry.name}`,
+        displayName: typeof manifest.displayName === 'string' ? manifest.displayName : 'Cline',
+        version: typeof manifest.version === 'string' ? manifest.version : null
+      };
+    });
+  });
+}
+
+function extensionHostRecords(homeDir, platform) {
+  return [
+    ...extensionRecordsFromRoots(extensionRoots(homeDir, platform), 'VS Code'),
+    ...extensionRecordsFromRoots(cursorExtensionRoots(homeDir, platform), 'Cursor')
+  ];
+}
+
+export function clineHostForInstallation(installation = {}) {
+  const hosts = [...new Set((installation.extensionRecords || []).map((record) => record.host).filter(Boolean))];
+  if (hosts.length === 1 && !installation.binary) return hosts[0];
+  if (!hosts.length && installation.binary) return 'Cline CLI';
+  // When both an extension and the CLI are installed, a shared ~/.cline
+  // session cannot be attributed safely without an explicit session field.
+  return null;
+}
+
+export function clineHostForPath(file, installation = null) {
+  const value = normal(file);
+  if (/\/\.cursor\/extensions\//i.test(value) || /\/Application Support\/Cursor\/User\/extensions\//i.test(value) || /\/Application Support\/Cursor\/User\/globalStorage\//i.test(value)) return 'Cursor';
+  if (/\/\.vscode\/extensions\//i.test(value) || /\/Application Support\/Code\/User\/extensions\//i.test(value)) return 'VS Code';
+  return clineHostForInstallation(installation || {}) || null;
+}
+
 export function clineInstallation({ homeDir = os.homedir(), env = process.env, platform = process.platform } = {}) {
   const root = path.join(homeDir, '.cline');
   const dataRoot = path.join(root, 'data');
   const sessionsRoot = path.join(dataRoot, 'sessions');
   const dbRoot = path.join(dataRoot, 'db');
   const binary = lookupBinary('cline', [path.join(homeDir, '.local', 'bin'), path.join(homeDir, '.npm-global', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'], env);
-  const extensions = extensionRoots(homeDir, platform).flatMap((base) => {
-    let entries = [];
-    try { entries = fs.readdirSync(base, { withFileTypes: true }); } catch {}
-    return entries.filter((entry) => entry.isDirectory() && CLINE_EXTENSION_IDS.some((id) => entry.name === id || entry.name.startsWith(`${id}-`))).map((entry) => path.join(base, entry.name));
-  });
-  return { root, dataRoot, sessionsRoot, dbRoot, dbFile: path.join(dbRoot, 'sessions.db'), binary, extensions };
+  const extensionRecords = extensionHostRecords(homeDir, platform);
+  const extensions = extensionRecords.map((record) => record.path);
+  return {
+    root, dataRoot, sessionsRoot, dbRoot, dbFile: path.join(dbRoot, 'sessions.db'), binary, extensions, extensionRecords,
+    cursorExtensions: extensionRecords.filter((record) => record.host === 'Cursor'),
+    vscodeExtensions: extensionRecords.filter((record) => record.host === 'VS Code')
+  };
 }
 
 function isSessionFile(file, sessionsRoot) {
   const relative = normal(path.relative(sessionsRoot, file));
   if (!relative || relative.startsWith('../') || !JSON_EXT.test(file)) return false;
-  if (/sessions\.db(?:[-.].*)?$/i.test(file) || /\.compaction\.json$/i.test(file)) return false;
+  // Cline stores transcript/message bodies beside the structural snapshot.
+  // They are deliberately excluded before opening them.
+  if (/sessions\.db(?:[-.].*)?$/i.test(file) || /\.compaction\.json$/i.test(file) || /\.messages\.json$/i.test(file)) return false;
   return SESSION_FILE.test(path.basename(file));
 }
 
@@ -156,12 +212,13 @@ function unsupportedSchema(value) {
   return version != null && version > CLINE_SCHEMA_VERSION;
 }
 
-function metadataRecord(value, file, { fallbackId = null } = {}) {
+function metadataRecord(value, file, { fallbackId = null, hostHint = null } = {}) {
   if (unsupportedSchema(value)) return null;
   const explicitId = firstString(value, ['sessionId', 'session_id', 'taskId', 'task_id', 'conversationId', 'conversation_id', 'id']);
   const route = modelAndRoute(value);
   const client = firstString(value, ['client', 'clientName', 'client_name', 'host', 'runtime', 'frontend']);
-  const host = /vscode|visual studio code|code/i.test(String(client || '')) ? 'VS Code' : /cli|terminal/i.test(String(client || '')) ? 'Cline CLI' : 'Cline';
+  const explicitHost = /cursor/i.test(String(client || '')) ? 'Cursor' : /vscode|visual studio code|code/i.test(String(client || '')) ? 'VS Code' : /cli|terminal/i.test(String(client || '')) ? 'Cline CLI' : null;
+  const host = explicitHost || hostHint || 'Cline';
   const status = normalizedStatus(firstString(value, ['status', 'state', 'phase', 'lifecycle', 'sessionStatus', 'session_status', 'mode']));
   const cwd = firstString(value, ['cwd', 'workspaceRoot', 'workspace_root', 'projectPath', 'project_path', 'projectRoot', 'project_root', 'rootPath', 'root_path']);
   const timestamp = firstTime(value, ['updatedAt', 'updated_at', 'lastActivityAt', 'last_activity_at', 'endedAt', 'ended_at', 'completedAt', 'completed_at', 'startedAt', 'started_at', 'createdAt', 'created_at', 'timestamp', 'ts']);
@@ -171,22 +228,22 @@ function metadataRecord(value, file, { fallbackId = null } = {}) {
   const id = explicitId || ((fallbackId && (status || timestamp || route.model || cwd || usage)) ? fallbackId : null);
   if (!id) return null;
   const usageAt = firstTime(value, ['usageAt', 'usage_at', 'updatedAt', 'updated_at', 'lastActivityAt', 'last_activity_at', 'timestamp', 'ts']) || timestamp;
-  return { id: String(id), host, cwd, status, timestamp, usage, usageAt, route, tools: firstNumber(value, ['toolCalls', 'tool_calls', 'toolCount', 'tool_count']) || 0, requestCount: firstNumber(value, ['requestCount', 'request_count']) || null };
+  return { id: String(id), host, hostEvidence: explicitHost ? 'session-record' : hostHint ? 'installation-context' : 'unknown', cwd, status, timestamp, usage, usageAt, route, tools: firstNumber(value, ['toolCalls', 'tool_calls', 'toolCount', 'tool_count']) || 0, requestCount: firstNumber(value, ['requestCount', 'request_count']) || null };
 }
 
-function parseJsonFile(file) {
+function parseJsonFile(file, { hostHint = null } = {}) {
   const source = stat(file);
   if (!source || source.size > CLINE_MAX_SESSION_BYTES) return { record: null, usage: [], oversized: true };
   try {
     const value = JSON.parse(fs.readFileSync(file, 'utf8'));
     const unsupported = unsupportedSchema(value);
-    const record = metadataRecord(value, file, { fallbackId: path.basename(file).replace(/\.(?:messages\.)?json$/i, '') });
+    const record = metadataRecord(value, file, { fallbackId: path.basename(file).replace(/\.(?:messages\.)?json$/i, ''), hostHint });
     const tokens = record?.usage;
     return { record, usage: tokens && record.usageAt ? [{ timestamp: record.usageAt, tokens, evidence: 'Exact', recordType: 'cline-session-usage', uuid: hash(`${file}:${record.usageAt}:${tokenActivity(tokens)}`) }] : [], unsupported, oversized: false };
   } catch { return { record: null, usage: [], malformed: true }; }
 }
 
-function parseJsonlFile(file) {
+function parseJsonlFile(file, { hostHint = null } = {}) {
   const source = stat(file);
   if (!source || source.size > CLINE_MAX_SESSION_BYTES) return { record: null, usage: [], oversized: true };
   let text = '';
@@ -196,15 +253,16 @@ function parseJsonlFile(file) {
     try { rows.push(JSON.parse(line)); } catch {}
   }
   const unsupported = rows.filter(unsupportedSchema).length;
-  const records = rows.filter((row) => !unsupportedSchema(row)).map((row) => metadataRecord(row, file, { fallbackId: path.basename(file, '.jsonl') })).filter(Boolean);
+  const records = rows.filter((row) => !unsupportedSchema(row)).map((row) => metadataRecord(row, file, { fallbackId: path.basename(file, '.jsonl'), hostHint })).filter(Boolean);
   const latest = records.sort((a, b) => String(a.timestamp || '').localeCompare(String(b.timestamp || ''))).at(-1) || null;
-  const usage = rows.filter((row) => !unsupportedSchema(row)).map((row) => { const record = metadataRecord(row, file, { fallbackId: path.basename(file, '.jsonl') }); return record?.usage && record.usageAt ? { timestamp: record.usageAt, tokens: record.usage, evidence: 'Exact', recordType: 'cline-jsonl-usage', uuid: hash(`${file}:${record.usageAt}:${tokenActivity(record.usage)}`) } : null; }).filter(Boolean);
+  const usage = rows.filter((row) => !unsupportedSchema(row)).map((row) => { const record = metadataRecord(row, file, { fallbackId: path.basename(file, '.jsonl'), hostHint }); return record?.usage && record.usageAt ? { timestamp: record.usageAt, tokens: record.usage, evidence: 'Exact', recordType: 'cline-jsonl-usage', uuid: hash(`${file}:${record.usageAt}:${tokenActivity(record.usage)}`) } : null; }).filter(Boolean);
   return { record: latest, usage, rows, unsupported, oversized: false };
 }
 
-export function readClineSessionMetadata(file) {
+export function readClineSessionMetadata(file, { hostHint = null } = {}) {
   if (!file || !JSON_EXT.test(file)) return null;
-  const parsed = file.toLowerCase().endsWith('.jsonl') ? parseJsonlFile(file) : parseJsonFile(file);
+  if (/\.messages\.json$/i.test(file) || /\.compaction\.json$/i.test(file)) return null;
+  const parsed = file.toLowerCase().endsWith('.jsonl') ? parseJsonlFile(file, { hostHint }) : parseJsonFile(file, { hostHint });
   if (!parsed.record) return null;
   return { ...parsed.record, file, sourceFingerprint: sourceFingerprint(file), usage: undefined, usageEvents: parsed.usage || [] };
 }
@@ -214,7 +272,10 @@ export function clineLiveDecision(file, previous, next, metadata = null) {
   const grew = !previous ? next.size > 0 : next.size > previous.size;
   const active = metadata?.status === 'active';
   const completed = metadata?.status === 'complete';
-  if (active || completed || grew) return { emit: Boolean(grew || active || completed), keep: true, active, completed, attention: metadata?.status === 'attention', reason: active ? 'structured-session-active' : completed ? 'structured-session-complete' : 'session-growth' };
+  // The tracker owns the sustained Working hold. Emit a discrete event only
+  // for bytes/lifecycle changes; repeatedly polling an unchanged active
+  // snapshot must not fabricate zero-byte waveform pulses.
+  if (completed || grew) return { emit: true, keep: true, active, completed, attention: metadata?.status === 'attention', reason: completed ? 'structured-session-complete' : 'session-growth' };
   return { emit: false, keep: true, active: false, completed: false, reason: 'no-validated-change' };
 }
 
@@ -223,22 +284,30 @@ export function clineInstallationState({ homeDir = os.homedir(), env = process.e
   const evidence = [];
   if (installation.binary) evidence.push('binary');
   if (exists(installation.root)) evidence.push('local-root');
-  if (installation.extensions.length) evidence.push('vscode-extension');
+  if (installation.cursorExtensions.length) evidence.push('cursor-extension');
+  if (installation.vscodeExtensions.length) evidence.push('vscode-extension');
   const sessionEvidence = exists(installation.sessionsRoot) ? 'session-root' : exists(installation.dbFile) ? 'session-index' : null;
   if (sessionEvidence) evidence.push(sessionEvidence);
   const installed = evidence.length > 0;
-  return { ...installation, installed, evidence, schema: sessionEvidence ? 'cline-session-artifacts' : null };
+  const hosts = [...new Set(installation.extensionRecords.map((record) => record.host))];
+  return { ...installation, installed, evidence, hosts, primaryHost: clineHostForInstallation(installation), schema: sessionEvidence ? 'cline-session-artifacts' : null };
 }
 
 export function discoverCline({ homeDir = os.homedir(), env = process.env, platform = process.platform, now = new Date() } = {}) {
   const installation = clineInstallationState({ homeDir, env, platform });
   const files = collectSessionFiles(installation.sessionsRoot);
   const historySupported = exists(installation.sessionsRoot) || exists(installation.dbFile);
+  // A session root is only installation/telemetry evidence. Promote it to
+  // historical use only when at least one bounded structural snapshot parses;
+  // message bodies and unsupported schemas never establish history.
+  const observedFiles = files.filter((file) => Boolean(readClineSessionMetadata(file, { hostHint: clineHostForPath(file, installation) })));
+  const version = installation.extensionRecords.map((record) => record.version).filter(Boolean).sort().at(-1) || null;
   return {
-    installed: { state: installation.installed ? 'detected' : 'not-detected', evidence: installation.evidence, version: null, observedAt: new Date(now).toISOString() },
-    history: historySupported ? { state: files.length ? 'none-yet' : 'none-yet', recordCount: 0, reason: files.length ? 'Safe Cline session artifacts are present; records are evaluated by the adapter.' : 'Use Cline once to create a supported local session artifact.' } : { state: installation.installed ? 'none-yet' : 'unsupported', recordCount: 0, reason: installation.installed ? 'Cline is installed; no supported session artifact exists yet.' : 'Cline is not detected.' },
+    installed: { state: installation.installed ? 'detected' : 'not-detected', evidence: installation.evidence, version, observedAt: new Date(now).toISOString() },
+    history: historySupported ? (observedFiles.length ? { state: 'observed', recordCount: observedFiles.length, reason: 'Supported structural Cline session metadata has been observed.' } : { state: 'none-yet', recordCount: 0, reason: files.length ? 'Cline session artifacts exist, but no supported structural record has been confirmed.' : 'Use Cline once to create a supported local session artifact.' }) : { state: installation.installed ? 'none-yet' : 'unsupported', recordCount: 0, reason: installation.installed ? 'Cline is installed; no supported session artifact exists yet.' : 'Cline is not detected.' },
     live: { state: 'unknown', evidence: [], freshness: 'unavailable', reason: 'Only structured Cline session state can create live work; editor presence alone is not activity.' },
     connection: { state: 'not-applicable' },
+    installation: { hosts: installation.hosts, primaryHost: installation.primaryHost, cursorExtension: installation.cursorExtensions.length > 0, vscodeExtension: installation.vscodeExtensions.length > 0, cli: Boolean(installation.binary), versions: installation.extensionRecords.map((record) => record.version).filter(Boolean) },
     telemetry: { sessionRoot: exists(installation.sessionsRoot), sessionIndex: exists(installation.dbFile), extension: installation.extensions.length > 0, jsonSnapshots: files.length, gatewayRouting: 'Observed session metadata only; provider settings and credentials are not read.' },
     health: { level: installation.installed ? 'ok' : 'unknown', code: installation.installed ? 'detected' : 'not-detected', checkedAt: new Date(now).toISOString() }
   };
@@ -257,6 +326,7 @@ function normalizedSession(file, parsed, projects) {
     id: `Cline:${record.id}`,
     adapterId: 'cline',
     ...identity,
+    hostEvidence: record.hostEvidence || 'unknown',
     sourceFile: file,
     sourceFingerprint: sourceFingerprint(file),
     timestamp: record.timestamp,
@@ -277,24 +347,36 @@ function normalizedSession(file, parsed, projects) {
     efficiencyEvents: [],
     harnessRunId: null,
     clineStatus: record.status || 'unknown',
-    clineTelemetry: { source: 'metadata-only-session-artifact', gatewayConfigured: record.route.gatewayConfigured, requestCount: record.requestCount, evidence: tokens && tokenActivity(tokens) > 0 ? 'Exact' : 'Unavailable' }
+    clineTelemetry: { source: 'metadata-only-session-artifact', gatewayConfigured: record.route.gatewayConfigured, requestCount: record.requestCount, hostEvidence: record.hostEvidence || 'unknown', evidence: tokens && tokenActivity(tokens) > 0 ? 'Exact' : 'Unavailable' }
   };
 }
 
-function reuse(prior) { return { ...prior, tokenDays: prior.tokenDays || {}, tokens: prior.tokens || emptyTokens(), efficiencyEvents: prior.efficiencyEvents || [], attributedSkills: prior.attributedSkills || [] }; }
+function reuse(prior, { hostHint = null } = {}) {
+  const next = { ...prior, tokenDays: prior.tokenDays || {}, tokens: prior.tokens || emptyTokens(), efficiencyEvents: prior.efficiencyEvents || [], attributedSkills: prior.attributedSkills || [] };
+  // A prior index may have been written before Cursor extension probing was
+  // added. Upgrade only the old generic Cline host; never overwrite an
+  // explicit Cline CLI/VS Code/session-record identity.
+  if (hostHint && (!prior.host || prior.host === 'Cline')) {
+    const identity = sessionIdentity({ agent: 'Cline', host: hostHint, provider: prior.provider || null, gateway: prior.gateway || null, account: prior.account || null, model: prior.modelRaw || prior.model, role: prior.role || null, harness: prior.harness || 'standalone', inferAgent: false });
+    Object.assign(next, identity, { hostEvidence: 'installation-context' });
+  }
+  return next;
+}
 
-export function scanCline(projects = [], root = path.join(os.homedir(), '.cline'), previous = new Map(), { now = new Date() } = {}) {
+export function scanCline(projects = [], root = path.join(os.homedir(), '.cline'), previous = new Map(), { now = new Date(), installation = null } = {}) {
   const sessionsRoot = path.join(root, 'data', 'sessions');
+  const sourceInstallation = installation || clineInstallation({ homeDir: path.dirname(root), env: process.env, platform: process.platform });
   const files = collectSessionFiles(sessionsRoot);
   const sessions = [];
   let inspected = 0, parsed = 0, changed = 0, malformed = 0, oversized = 0, unsupported = 0;
   for (const file of files) {
     inspected++;
     const fingerprint = sourceFingerprint(file);
+    const hostHint = clineHostForPath(file, sourceInstallation);
     const prior = previous.get(file);
-    if (prior?.sourceFingerprint === fingerprint && prior?.adapterId === 'cline') { sessions.push(reuse(prior)); continue; }
+    if (prior?.sourceFingerprint === fingerprint && prior?.adapterId === 'cline') { sessions.push(reuse(prior, { hostHint })); continue; }
     changed++;
-    const parsedFile = file.toLowerCase().endsWith('.jsonl') ? parseJsonlFile(file) : parseJsonFile(file);
+    const parsedFile = file.toLowerCase().endsWith('.jsonl') ? parseJsonlFile(file, { hostHint }) : parseJsonFile(file, { hostHint });
     if (parsedFile.oversized) { oversized++; continue; }
     if (parsedFile.malformed) { malformed++; continue; }
     unsupported += parsedFile.unsupported || 0;

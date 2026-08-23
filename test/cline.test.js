@@ -9,6 +9,8 @@ import { discoverClosedTools } from '../src/discovery.js';
 import { ClineSessionTracker } from '../src/live-work.js';
 import { scan } from '../src/core.js';
 import { AdapterRegistry } from '../src/adapters/registry.js';
+import { runtimeCatalog } from '../src/runtime-registry.js';
+import * as cursorAdapter from '../src/adapters/cursor.js';
 
 const temp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
 const write = (file, value) => { fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, typeof value === 'string' ? value : JSON.stringify(value)); };
@@ -83,6 +85,7 @@ test('Cline structured session lifecycle keeps real work Working and clears on c
   assert.equal(completed.completed, true);
   assert.equal(tracker.signal(Date.parse('2026-08-23T00:00:22Z')), null);
   assert.equal(clineLiveDecision(file, { size: 10, mtimeMs: 1 }, { size: 20, mtimeMs: 2 }, readClineSessionMetadata(file)).completed, true);
+  assert.equal(clineLiveDecision(file, { size: 20, mtimeMs: 2 }, { size: 20, mtimeMs: 3 }, { status: 'active' }).emit, false);
 });
 
 test('Cline adapter is registry-backed, dynamic, and never a capacity source', () => {
@@ -109,4 +112,56 @@ test('closed discovery finds Cline without launching it or reading provider cred
   assert.equal(found.Cline.installed.state, 'detected');
   assert.equal(found.Cline.history.state, 'none-yet');
   assert.equal(JSON.stringify(found.Cline).includes('fake-inference-secret'), false);
+});
+
+test('Cursor-hosted Cline extension is discovered without vanilla VS Code or CLI assumptions', () => {
+  const { home, project, sessions } = fixture();
+  const extension = path.join(home, '.cursor', 'extensions', 'saoudrizwan.claude-dev-4.1.14-universal');
+  write(path.join(extension, 'package.json'), { publisher: 'saoudrizwan', name: 'claude-dev', displayName: 'Cline', version: '4.1.14' });
+  const file = path.join(sessions, 'cursor-session.json');
+  write(file, { sessionId: 'cursor-session', status: 'completed', updatedAt: '2026-08-23T00:00:00Z', cwd: project, providerId: 'openrouter', modelId: 'moonshotai/kimi-k2' });
+  write(path.join(sessions, 'cursor-session.messages.json'), { sessionId: 'cursor-session', messages: [{ role: 'user', content: 'private prompt must never be read' }] });
+  const installation = clineInstallationState({ homeDir: home, env: { PATH: '' }, platform: 'darwin' });
+  assert.equal(installation.installed, true);
+  assert.deepEqual(installation.hosts, ['Cursor']);
+  assert.equal(installation.primaryHost, 'Cursor');
+  assert.equal(installation.cursorExtensions.length, 1);
+  assert.equal(installation.vscodeExtensions.length, 0);
+  const discovered = discoverCline({ homeDir: home, env: { PATH: '' }, platform: 'darwin', now: new Date('2026-08-23T00:01:00Z') });
+  assert.equal(discovered.installed.version, '4.1.14');
+  assert.equal(discovered.installation.primaryHost, 'Cursor');
+  assert.equal(discovered.installation.cursorExtension, true);
+  assert.equal(discovered.history.state, 'observed');
+  assert.equal(discovered.history.recordCount, 1);
+  const result = scanCline([{ id: 'project:demo', canonicalPath: project }], path.join(home, '.cline'), new Map(), { installation, now: new Date('2026-08-23T00:01:00Z') });
+  assert.equal(result.diagnostics.clineFilesInspected, 1);
+  assert.equal(result.sessions.length, 1);
+  assert.equal(result.sessions[0].agent, 'Cline');
+  assert.equal(result.sessions[0].host, 'Cursor');
+  assert.equal(result.sessions[0].hostEvidence, 'installation-context');
+  assert.equal(result.sessions[0].gateway, 'OpenRouter');
+  assert.equal(result.sessions[0].modelId, 'moonshotai/kimi-k2');
+  assert.equal(result.sessions[0].projectId, 'project:demo');
+  assert.equal(result.sessions[0].tokens.freshInput, 0);
+  assert.equal(result.sessions[0].clineTelemetry.evidence, 'Unavailable');
+  assert.equal(readClineSessionMetadata(path.join(sessions, 'cursor-session.messages.json')), null);
+  const closed = discoverClosedTools({ homedir: home, env: { PATH: '' }, platform: 'darwin' });
+  assert.equal(closed.Cline.installation.primaryHost, 'Cursor');
+  assert.equal(closed.Cline.installation.vscodeExtension, false);
+});
+
+test('Cline and Cursor remain distinct runtime identities when both are observed', () => {
+  const manifests = [cursorAdapter.manifest, clineAdapter.manifest];
+  const sourceStates = {
+    Cursor: { installed: { state: 'detected' } },
+    Cline: { installed: { state: 'detected' }, installation: { primaryHost: 'Cursor' } }
+  };
+  const sessions = [
+    { adapterId: 'cursor', agent: 'Cursor', host: 'Cursor', modelId: 'cursor/model', model: 'Cursor model' },
+    { adapterId: 'cline', agent: 'Cline', host: 'Cursor', modelId: 'moonshotai/kimi-k2', model: 'Kimi K2', gateway: 'OpenRouter' }
+  ];
+  const catalog = runtimeCatalog(manifests, sourceStates, sessions);
+  assert.deepEqual(catalog.liveRuntimes.map((runtime) => runtime.agent).sort(), ['Cline', 'Cursor']);
+  assert.equal(catalog.liveRuntimes.find((runtime) => runtime.agent === 'Cline').host, 'Cursor');
+  assert.equal(catalog.liveRuntimes.find((runtime) => runtime.agent === 'Cursor').host, 'Cursor');
 });

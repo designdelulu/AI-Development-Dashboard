@@ -10,7 +10,7 @@ import { shareableStack, manifest, privateInventory, publicMetricOptions, create
 import { claudeLiveDecision, cursorLiveDecision, isCursorTranscriptPath, isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
 import { ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
-import { clineLiveDecision, readClineSessionMetadata } from './cline.js';
+import { clineHostForPath, clineInstallation, clineLiveDecision, readClineSessionMetadata } from './cline.js';
 import { loadSettings, saveSettings } from './config.js';
 import { releaseInfo } from './release.js';
 import { tokenReportFromCalendar } from './tokens.js';
@@ -52,6 +52,7 @@ const liveActivityEvents = [], liveFileSizes = new Map(), liveFiles = new Map(),
 const claudeToolTracker = new ClaudeToolTracker();
 const cursorTurnTracker = new CursorTurnTracker();
 const clineSessionTracker = new ClineSessionTracker();
+let liveClineInstallation = null, liveClineInstallationAt = 0;
 
 function projectMetadata() { try { return JSON.parse(fs.readFileSync(projectMetaFile, 'utf8')); } catch { return { version: 1, projects: {} }; } }
 function saveProjectMetadata(metadata) { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(projectMetaFile, JSON.stringify(metadata, null, 2)); }
@@ -71,6 +72,13 @@ function decorate(result) {
   return { ...decorated, handoffs, achievements: achievementsFor(decorated, { handoffs }) };
 }
 function currentSources() { return defaultSources({ dataDir, settings: loadSettings(dataDir) }); }
+function clineInstallationForLive() {
+  if (!liveClineInstallation || Date.now() - liveClineInstallationAt > 60_000) {
+    liveClineInstallation = clineInstallation({ homeDir: process.env.HOME, env: process.env, platform: process.platform });
+    liveClineInstallationAt = Date.now();
+  }
+  return liveClineInstallation;
+}
 function antigravityCliPresent() { return Boolean(index().sourceStates?.Antigravity?.installed?.evidence?.includes('binary')); }
 function readStoredIndex() {
   try { return JSON.parse(fs.readFileSync(indexFile, 'utf8')); }
@@ -345,7 +353,7 @@ function observeLivePath(agent, candidate) {
       clineSessionTracker.remove(candidate);
       return;
     }
-    const metadata = readClineSessionMetadata(candidate);
+    const metadata = readClineSessionMetadata(candidate, { hostHint: clineHostForPath(candidate, clineInstallationForLive()) });
     const lifecycle = clineSessionTracker.observe(candidate, metadata, Date.now());
     const decision = clineLiveDecision(candidate, previous, next, metadata);
     liveFiles.set(candidate, agent);
