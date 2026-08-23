@@ -1,10 +1,12 @@
 import fs from 'node:fs';
+import { readClineSessionMetadata } from './cline.js';
 
 // Live monitoring retains only short-lived structural state. It deliberately
 // ignores all transcript text, tool arguments, command bodies, and results.
 const MAX_APPENDED_JSONL_BYTES = 256 * 1024;
 export const CLAUDE_IN_PROGRESS_MAX_MS = 5 * 60_000;
 export const CURSOR_IN_PROGRESS_MAX_MS = 5 * 60_000;
+export const CLINE_IN_PROGRESS_MAX_MS = 5 * 60_000;
 
 function jsonRows(text, { skipFirst = false } = {}) {
   const lines = text.split('\n');
@@ -125,6 +127,58 @@ export class CursorTurnTracker {
       source: 'cursor-structured-turn-lifecycle',
       confidence: 'Structured',
       reason: 'A Cursor transcript structurally identifies an AI turn still in progress.'
+    };
+  }
+}
+
+// Cline session snapshots expose a small structural lifecycle state. Keep the
+// in-progress hold separate from file-growth pulses so a sparse long-running
+// turn remains Working without fabricating events. Unknown/complete snapshots
+// never create activity.
+export class ClineSessionTracker {
+  constructor({ maxAgeMs = CLINE_IN_PROGRESS_MAX_MS } = {}) {
+    this.maxAgeMs = maxAgeMs;
+    this.sessions = new Map();
+  }
+
+  observe(file, metadata = null, at = Date.now()) {
+    if (!file) return { started: false, completed: false, active: false };
+    const prior = this.sessions.get(file) || { startedAt: null };
+    let started = false;
+    let completed = false;
+    if (metadata?.status === 'active') {
+      if (prior.startedAt == null) started = true;
+      prior.startedAt = prior.startedAt || at;
+    } else if (metadata?.status === 'complete') {
+      if (prior.startedAt != null) completed = true;
+      prior.startedAt = null;
+    } else if (metadata?.status === 'attention') {
+      // Attention is not in-progress work; retain no Working hold.
+      prior.startedAt = null;
+    }
+    this.sessions.set(file, prior);
+    return { started, completed, active: prior.startedAt != null };
+  }
+
+  observeFile(file, at = Date.now()) { return this.observe(file, readClineSessionMetadata(file), at); }
+  remove(file) { this.sessions.delete(file); }
+  clear() { this.sessions.clear(); }
+
+  signal(now = Date.now()) {
+    let since = null;
+    for (const session of this.sessions.values()) {
+      if (session.startedAt == null || now - session.startedAt > this.maxAgeMs) {
+        session.startedAt = null;
+        continue;
+      }
+      since = since == null ? session.startedAt : Math.min(since, session.startedAt);
+    }
+    return since == null ? null : {
+      active: true,
+      since: new Date(since).toISOString(),
+      source: 'cline-structured-session-lifecycle',
+      confidence: 'Structured',
+      reason: 'A Cline session structurally identifies an AI turn still in progress.'
     };
   }
 }

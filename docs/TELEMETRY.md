@@ -28,6 +28,14 @@ Disabled by default. After explicit connection and manual sync, a supplied OpenR
 
 OpenRouter gateway/account is distinct from the observed underlying provider/model. Agent, host, harness, and project are Unknown unless separately proven. Timestamp proximity is never project attribution. Analytics history is usage telemetry, not live activity. Errors are surfaced as invalid credential, insufficient permission, rate limit, service unavailable, malformed response, offline, or stale cached data without blocking local scanning.
 
+## Cline local adapter (feature-probed)
+
+Cline is a local agent/host adapter, not a capacity source. It detects a Cline CLI, known VS Code extension installation evidence, and the documented `~/.cline/data/sessions/` area while Cline is closed. Current safe parsing is deliberately narrow: bounded JSON/JSONL session metadata and numeric usage fields are read when present; a detected `sessions.db` index is recorded as an available source but is not opened by this adapter. Prompt/response bodies, transcript content, tool arguments, provider settings, secret stores, and inference keys are never read.
+
+When a session record identifies a route, the normalized identity preserves `agent: Cline`, the editor/CLI host, `gateway: OpenRouter`, the underlying provider, and the raw/normalized model ID separately. Cline model configuration is **Configured** evidence only; a session record is required before the model becomes **Observed** usage. Workspace/cwd attribution is Confirmed only when it resolves below a known project root. A structured active/running/planning/tool state can hold a Cline lane in Working; completion clears it to the normal Recent → Idle transition. Extension installation or VS Code process presence alone never creates activity.
+
+Cline local token fields are normalized only when their names and numeric semantics match the existing categories and remain Exact at the source-record level. Local Cline cost is unavailable unless a future adapter receives a deterministic provider-billed field. OpenRouter's optional Management analytics remains the canonical source for exact aggregate billed cost; it is not merged with a Cline session by timestamp. No deterministic shared request identifier is currently available in the local adapter, so remote OpenRouter agent/host/project fields remain Unknown and token/cost aggregates are not double-counted.
+
 ## Antigravity CLI status-line capture (optional local integration)
 
 Closed Antigravity discovery supports application/CLI/root presence only; retained IDE/conversation storage is not parsed. When explicitly enabled, the documented `statusLine` JSON bridge captures model ID/display name, current workspace/cwd, current context token categories, quota bucket `remaining_fraction`/`reset_time`, plan tier, and CLI version. The snapshot is exact for those documented fields but is not an accumulated usage history and never feeds token-period totals.

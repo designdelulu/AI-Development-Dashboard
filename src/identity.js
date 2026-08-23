@@ -89,12 +89,14 @@ export function inferAgentFromModel(model, fallbackAgent) {
   return fallbackAgent;
 }
 
-export function sessionIdentity({ agent, host, provider = null, model, role = null, harness = 'standalone', inferAgent = true } = {}) {
+export function sessionIdentity({ agent, host, provider = null, gateway = null, account = null, model, role = null, harness = 'standalone', inferAgent = true } = {}) {
   const inferred = inferProvider(model, { agent });
   const resolvedAgent = inferAgent ? inferAgentFromModel(model, agent) : (agent || null);
   return {
     agent: resolvedAgent,
     host: host || agent || null,
+    gateway: gateway || null,
+    account: account || null,
     provider: provider || inferred.provider,
     providerConfidence: provider ? 'Observed from source' : inferred.confidence,
     model: model || null,

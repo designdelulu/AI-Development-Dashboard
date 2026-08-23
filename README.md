@@ -80,6 +80,7 @@ Installation, historical use, active work, and connected status remain separate.
 | Claude Code | Supported | Validated JSONL growth | Supported where local fields exist | Optional documented local capacity status | Official Usage action remains available when Claude Code is closed; status/config touches never create live activity. |
 | Codex CLI | Supported | Supported local session activity | Supported where local fields exist | Native local plan windows where exposed | Host and model remain separate. |
 | Cursor | Supported | Supported structural agent-tool/transcript growth | Exact, Estimated, Mixed, or Unavailable local evidence | Capacity unavailable locally | Official Usage action remains available when Cursor is closed. App startup, editor storage, and WAL housekeeping are not AI activity; no browser/account scraping. |
+| Cline | Feature-probed local/extension discovery | Structured Cline session lifecycle when exposed | Exact local fields where session artifacts expose them; model IDs are dynamic | No Cline capacity source; OpenRouter account capacity remains separate | Cline is a possible OpenRouter host. Provider, gateway, model, host, and project remain separate; VS Code presence alone is never AI activity. |
 | Antigravity | Closed-app/CLI/root detection | Unavailable without validated work evidence | Optional documented local status-line snapshot | Optional quota bucket snapshot | Presence is not history or live work. |
 | OpenRouter | Explicit Connected Service | Not a live agent | Provider-reported aggregate usage/models | Exact reported cost/credits where exposed | Disabled by default; project attribution stays Unknown without deterministic linkage. |
 | Git | Project discovery | — | Descriptive repository activity | — | Not a productivity score. |
@@ -88,6 +89,10 @@ Installation, historical use, active work, and connected status remain separate.
 ### OpenRouter (optional)
 
 OpenRouter is a connected **gateway/account telemetry source**, not a Live Agent. After explicit connection and manual sync, the dashboard uses `OPENROUTER_MANAGEMENT_KEY` from the dashboard process to request allowed analytics metadata, aggregate usage, and credits. It stores an opaque credential reference, never the key. Provider-reported cost is Exact only at the level OpenRouter reports and can be deterministically correlated; timestamp proximity never assigns remote requests to a project or local agent.
+
+### Cline through OpenRouter (optional local host)
+
+Cline is one supported local host for routed OpenRouter inference; it is not the only possible host. A supported session can retain the full path `Cline → OpenRouter → underlying provider → exact model`, for example `Cline → OpenRouter → Moonshot → Kimi`. Claude Code, Codex, and future supported hosts may use the same gateway independently. Cline's inference key stays inside Cline and is never read or copied by the dashboard. The dashboard's separate `OPENROUTER_MANAGEMENT_KEY` is only for optional account analytics. A configured Cline model is not historical usage until a session artifact records observed work; remote OpenRouter rows remain host/project Unknown unless a deterministic correlation identifier is available.
 
 ### Antigravity (local foundation)
 

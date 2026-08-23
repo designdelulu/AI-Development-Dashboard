@@ -9,7 +9,8 @@ import { readPlanCapacity } from './capacity.js';
 import { shareableStack, manifest, privateInventory, publicMetricOptions, createSnapshot, shareCardSvg, setupPrompt } from './sharing.js';
 import { claudeLiveDecision, cursorLiveDecision, isCursorTranscriptPath, isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
-import { ClaudeToolTracker, CursorTurnTracker, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
+import { ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
+import { clineLiveDecision, readClineSessionMetadata } from './cline.js';
 import { loadSettings, saveSettings } from './config.js';
 import { releaseInfo } from './release.js';
 import { tokenReportFromCalendar } from './tokens.js';
@@ -50,6 +51,7 @@ let sampleSystem = null, latestSystem = null, latestCapacity = null;
 const liveActivityEvents = [], liveFileSizes = new Map(), liveFiles = new Map(), attentionSignals = new Map(), cursorLiveCarries = new Map(), previewSnapshots = new Map();
 const claudeToolTracker = new ClaudeToolTracker();
 const cursorTurnTracker = new CursorTurnTracker();
+const clineSessionTracker = new ClineSessionTracker();
 
 function projectMetadata() { try { return JSON.parse(fs.readFileSync(projectMetaFile, 'utf8')); } catch { return { version: 1, projects: {} }; } }
 function saveProjectMetadata(metadata) { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(projectMetaFile, JSON.stringify(metadata, null, 2)); }
@@ -336,6 +338,22 @@ function observeLivePath(agent, candidate) {
     emitLiveSignal(agent, candidate, previous, next);
     return;
   }
+  if (agent === 'Cline') {
+    if (!next) {
+      liveFiles.delete(candidate);
+      liveFileSizes.delete(candidate);
+      clineSessionTracker.remove(candidate);
+      return;
+    }
+    const metadata = readClineSessionMetadata(candidate);
+    const lifecycle = clineSessionTracker.observe(candidate, metadata, Date.now());
+    const decision = clineLiveDecision(candidate, previous, next, metadata);
+    liveFiles.set(candidate, agent);
+    liveFileSizes.set(candidate, next);
+    if (!decision.emit && !lifecycle.started && !lifecycle.completed) return;
+    emitLiveSignal(agent, candidate, previous, next);
+    return;
+  }
   if (candidate && next && previous && next.size === previous.size && next.mtimeMs === previous.mtimeMs) return;
   if (candidate && !next) {
     liveFiles.delete(candidate);
@@ -360,13 +378,13 @@ function recordLiveActivity(agent, source, filename, kind = 'event', size = null
 function pollLiveFiles() { for (const [file, agent] of liveFiles) observeLivePath(agent, file); }
 function sourceWatchList(sources) {
   const list = [];
-  const watchKeys = new Set(['claudeRoot', 'codexRoot', 'cursorRoot', 'cursorStorageRoot', 'antigravityRoot', 'antigravityCliRoot']);
+  const watchKeys = new Set(['claudeRoot', 'codexRoot', 'cursorRoot', 'cursorStorageRoot', 'clineSessionsRoot', 'antigravityRoot', 'antigravityCliRoot']);
   for (const [key, value] of Object.entries(sources)) {
     // Project roots and the home directory are intentionally not watched:
     // they can contain millions of Dropbox/application files. Adapter roots
     // below are bounded and the rediscovery timer remains the fallback.
     if (!watchKeys.has(key) || typeof value !== 'string' || !value) continue;
-    const agent = { claudeRoot: 'Claude', codexRoot: 'Codex', cursorRoot: 'Cursor', cursorStorageRoot: 'Cursor' }[key] || null;
+    const agent = { claudeRoot: 'Claude', codexRoot: 'Codex', cursorRoot: 'Cursor', cursorStorageRoot: 'Cursor', clineSessionsRoot: 'Cline' }[key] || null;
     list.push([key, value, agent]);
   }
   return list;
@@ -443,6 +461,7 @@ function liveState() {
   const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity });
   const claudeInProgress = claudeToolTracker.signal();
   const cursorInProgress = cursorTurnTracker.signal();
+  const clineInProgress = clineSessionTracker.signal();
   const current = applyCachedViewMeta() || index();
   const runtimes = current.runtimeCatalog?.liveRuntimes || [];
   if (!samplePresence || samplePresence.runtimes !== runtimes) {
@@ -458,9 +477,10 @@ function liveState() {
       attentionSignals.delete(agent);
       if (agent === 'Claude') claudeToolTracker.clear();
       if (agent === 'Cursor') cursorTurnTracker.clear();
+      if (agent === 'Cline') clineSessionTracker.clear();
     }
   }
-  snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(current), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: { ...(claudeInProgress ? { Claude: claudeInProgress } : {}), ...(cursorInProgress ? { Cursor: cursorInProgress } : {}) }, presenceStates });
+  snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(current), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: { ...(claudeInProgress ? { Claude: claudeInProgress } : {}), ...(cursorInProgress ? { Cursor: cursorInProgress } : {}), ...(clineInProgress ? { Cline: clineInProgress } : {}) }, presenceStates });
   snapshot.presence = presenceStates;
   snapshot.agents = detectAgents();
   return snapshot;

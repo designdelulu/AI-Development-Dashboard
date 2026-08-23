@@ -97,7 +97,7 @@ function usageObservations(sessions = []) {
       id: `usage:${hash(`${session.id}:${day.date || timestamp}:${day.eventCount || 0}`)}`,
       type: 'usage_observation', timestamp: iso(timestamp), observedAt: session.recordedAt || null,
       sessionId: session.id, workBlockId: null, attemptId: null, projectId: session.projectId || null,
-      identity: { agent: session.agent || null, host: session.host || null, harness: session.harness || null, provider: session.provider || null, model: session.model || null, modelRaw: session.modelRaw || null, modelId: session.modelId || null },
+      identity: { agent: session.agent || null, host: session.host || null, harness: session.harness || null, gateway: session.gateway || null, account: session.account || null, provider: session.provider || null, model: session.model || null, modelRaw: session.modelRaw || null, modelId: session.modelId || null },
       tokens: { ...day.tokens, evidence: day.evidence || session.tokenEvidence || 'unavailable', derivationCode: 'indexed-usage-event' },
       cost: { amount: null, currency: null, semantic: 'unavailable', coverage: 'No local subscription usage is converted to money.' },
       evidence: EFFICIENCY_EVIDENCE.measured, source: 'normalized-local-usage', privacyClass: 'structural-only'
@@ -111,7 +111,7 @@ function workBlocks(sessions = []) {
     id: `work:${hash(session.id)}`, projectId: session.projectId || null, sessionIds: [session.id], attemptIds: [],
     startedAt: iso(session.usageStartedAt || session.timestamp), endedAt: iso(session.usageEndedAt || session.timestamp),
     boundaryMethod: 'session-proxy', boundaryConfidence: 'descriptive', labels: [], outcomeId: null,
-    identity: { agent: session.agent || null, host: session.host || null, harness: session.harness || null, provider: session.provider || null, model: session.model || null, modelRaw: session.modelRaw || null, modelId: session.modelId || null },
+    identity: { agent: session.agent || null, host: session.host || null, harness: session.harness || null, gateway: session.gateway || null, account: session.account || null, provider: session.provider || null, model: session.model || null, modelRaw: session.modelRaw || null, modelId: session.modelId || null },
     attributionConfidence: session.attributionConfidence || 'Unknown'
   }));
 }
@@ -218,7 +218,7 @@ export function normalizeProspectiveComparison(foundation = {}, { instrumentatio
 export function buildEfficiencyFoundation({ sessions = [], capabilityUsageEvents = [] } = {}) {
   const blocks = workBlocks(sessions), bySession = new Map(blocks.flatMap((block) => block.sessionIds.map((id) => [id, block])));
   const observations = usageObservations(sessions).map((item) => ({ ...item, workBlockId: bySession.get(item.sessionId)?.id || null }));
-  const structural = sessions.flatMap((session) => (session.efficiencyEvents || []).map((item) => ({ ...item, workBlockId: bySession.get(session.id)?.id || null, projectId: session.projectId || null, identity: item.identity || { agent: session.agent || null, host: session.host || null, harness: session.harness || null, provider: session.provider || null, model: session.model || null, modelId: session.modelId || null } })));
+  const structural = sessions.flatMap((session) => (session.efficiencyEvents || []).map((item) => ({ ...item, workBlockId: bySession.get(session.id)?.id || null, projectId: session.projectId || null, identity: item.identity || { agent: session.agent || null, host: session.host || null, harness: session.harness || null, gateway: session.gateway || null, account: session.account || null, provider: session.provider || null, model: session.model || null, modelId: session.modelId || null } })));
   const retries = inferredRetries(structural);
   const outcomes = structural.filter((item) => ['validation_passed', 'validation_failed', 'task_complete_structured'].includes(item.type)).map((item) => ({ id: `outcome:${hash(item.id)}`, workBlockId: item.workBlockId, state: 'unknown', evidenceClass: item.type.startsWith('validation') ? 'test-result' : 'host-structured', checks: [{ kind: item.type, status: item.type === 'validation_passed' ? 'passed' : item.type === 'validation_failed' ? 'failed' : 'observed', observedAt: item.timestamp, source: item.source }], recordedAt: item.timestamp }));
   const capabilityEvidence = capabilityUsageEvents.map((item) => ({ id: `capability-evidence:${hash(item.id)}`, capabilityId: item.capabilityId, host: item.agent === 'Claude' ? 'Claude Code' : null, projectId: item.projectId || null, sessionId: item.sessionId || null, attemptId: null, workBlockId: bySession.get(item.sessionId)?.id || null, class: 'confirmed-invocation', source: item.evidenceType, observedAt: item.timestamp, details: {} }));

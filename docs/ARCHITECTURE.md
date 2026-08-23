@@ -11,7 +11,8 @@ filesystem/Git ─┐
 Claude records ─┼─ adapter registry ─→ normalized JSON index ─→ localhost UI
 Codex records ──┤         ↑                   ↑
 Cursor records ─┤         └─ capability manifest + read-only context
-capability files ┘                             └─ source lifecycle state
+Cline records ──┤                              └─ source lifecycle state
+capability files ┘
 ```
 
 ## Connected-service boundary
@@ -19,6 +20,8 @@ capability files ┘                             └─ source lifecycle state
 OpenRouter is a registry-backed `connected-service` adapter, not a local scanner special case. Its service boundary is constructed without I/O and makes a request only after explicit Connect or manual Sync, a distinct `networkConnected` permission, and an externally supplied management credential. Phase 2A allowlists only analytics metadata, aggregate analytics query, and credits. The service caches normalized aggregates locally with source and sync timestamps; raw responses, request IDs, key metadata, prompts, and credentials are not retained.
 
 OpenRouter is the gateway/account source. Underlying provider and model identities remain separate, and agent/host are null unless independent local evidence identifies them. Aggregate remote history is never placed in Live Agent Activity. Projects remain Unknown unless an explicit deterministic mapping is introduced.
+
+The Cline adapter is a local-read, feature-probed source. It reads only bounded structural session metadata from supported JSON/JSONL artifacts under `~/.cline/data/sessions/`; a discovered SQLite session index is health/discovery evidence until a reviewed read-only schema adapter exists. Cline is represented as the agent/host while a route can independently retain `gateway: OpenRouter`, underlying provider, exact model, workspace/project, and session. This permits Claude Code, Codex, Cline, or another supported host to use the same OpenRouter account without host reassignment or timestamp correlation. Cline has no capacity card: credits belong to the OpenRouter account.
 
 ## Antigravity local adapter
 

@@ -34,6 +34,12 @@ export function isCursorAgentToolPath(file) {
   return isCursorLivePath(normal) && /\/agent-tools\//i.test(normal) && !normal.endsWith('/');
 }
 
+export function isClineLivePath(file) {
+  const normal = normalizeLivePath(file);
+  if (!normal || IGNORED.test(normal)) return false;
+  return /\/\.cline\/data\/sessions\//i.test(normal) && /\.(?:json|jsonl)$/i.test(normal) && !/sessions\.db|\.compaction\.json$/i.test(normal);
+}
+
 export function isClaudeLivePath(file) {
   const normal = normalizeLivePath(file);
   if (!normal || !/\.jsonl$/i.test(normal) || IGNORED.test(normal) || CLAUDE_EXCLUDED.test(normal)) return false;
@@ -50,6 +56,7 @@ export function isLiveActivityPath(agent, file) {
   if (agent === 'Cursor') return isCursorLivePath(file);
   if (agent === 'Claude') return isClaudeLivePath(file);
   if (agent === 'Codex') return isCodexLivePath(file);
+  if (agent === 'Cline') return isClineLivePath(file);
   return false;
 }
 
