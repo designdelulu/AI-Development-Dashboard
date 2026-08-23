@@ -216,6 +216,11 @@ function metadataRecord(value, file, { fallbackId = null, hostHint = null } = {}
   if (unsupportedSchema(value)) return null;
   const explicitId = firstString(value, ['sessionId', 'session_id', 'taskId', 'task_id', 'conversationId', 'conversation_id', 'id']);
   const route = modelAndRoute(value);
+  // The current Cline session snapshot also carries a host-side process id
+  // and source marker.  These are structural lifecycle metadata only; they
+  // are never used to read command lines, credentials, or message bodies.
+  const processId = firstNumber(value, ['pid', 'processId', 'process_id']);
+  const source = firstString(value, ['source', 'sourceName', 'source_name']);
   const client = firstString(value, ['client', 'clientName', 'client_name', 'host', 'runtime', 'frontend']);
   const explicitHost = /cursor/i.test(String(client || '')) ? 'Cursor' : /vscode|visual studio code|code/i.test(String(client || '')) ? 'VS Code' : /cli|terminal/i.test(String(client || '')) ? 'Cline CLI' : null;
   const host = explicitHost || hostHint || 'Cline';
@@ -228,7 +233,7 @@ function metadataRecord(value, file, { fallbackId = null, hostHint = null } = {}
   const id = explicitId || ((fallbackId && (status || timestamp || route.model || cwd || usage)) ? fallbackId : null);
   if (!id) return null;
   const usageAt = firstTime(value, ['usageAt', 'usage_at', 'updatedAt', 'updated_at', 'lastActivityAt', 'last_activity_at', 'timestamp', 'ts']) || timestamp;
-  return { id: String(id), host, hostEvidence: explicitHost ? 'session-record' : hostHint ? 'installation-context' : 'unknown', cwd, status, timestamp, usage, usageAt, route, tools: firstNumber(value, ['toolCalls', 'tool_calls', 'toolCount', 'tool_count']) || 0, requestCount: firstNumber(value, ['requestCount', 'request_count']) || null };
+  return { id: String(id), host, hostEvidence: explicitHost ? 'session-record' : hostHint ? 'installation-context' : 'unknown', cwd, status, timestamp, startedAt: firstTime(value, ['startedAt', 'started_at']), processId, source, usage, usageAt, route, tools: firstNumber(value, ['toolCalls', 'tool_calls', 'toolCount', 'tool_count']) || 0, requestCount: firstNumber(value, ['requestCount', 'request_count']) || null };
 }
 
 function parseJsonFile(file, { hostHint = null } = {}) {

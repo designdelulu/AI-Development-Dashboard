@@ -6,7 +6,7 @@ import path from 'node:path';
 import { clineInstallationState, clineLiveDecision, discoverCline, readClineSessionMetadata, scanCline } from '../src/cline.js';
 import * as clineAdapter from '../src/adapters/cline.js';
 import { discoverClosedTools } from '../src/discovery.js';
-import { ClineSessionTracker } from '../src/live-work.js';
+import { CLINE_IN_PROGRESS_MAX_MS, ClineSessionTracker, clineSnapshotBootstrapEligible } from '../src/live-work.js';
 import { scan } from '../src/core.js';
 import { AdapterRegistry } from '../src/adapters/registry.js';
 import { runtimeCatalog, runtimeCatalogForLiveEvidence } from '../src/runtime-registry.js';
@@ -98,6 +98,26 @@ test('an unchanged active Cline snapshot does not re-arm after the orphan hold e
   assert.equal(tracker.observe('session.json', active, 12).started, false);
   assert.equal(tracker.signal(12), null);
   assert.equal(tracker.observe('session.json', { ...active, sourceFingerprint: '10:2' }, 13).started, true);
+});
+
+test('Cline active-turn lease is refreshed by structural progress, not original turn age', () => {
+  const tracker = new ClineSessionTracker({ maxAgeMs: 100 });
+  const first = { status: 'active', sourceFingerprint: '10:1' };
+  assert.equal(tracker.observe('session.json', first, 0).started, true);
+  // A quiet remote-model wait is still inside the lease.
+  assert.equal(tracker.signal(99)?.active, true);
+  // Real snapshot progress refreshes the lease even though the turn is much
+  // older than the original maxAge window.
+  assert.equal(tracker.observe('session.json', { ...first, sourceFingerprint: '10:2' }, 99).started, false);
+  assert.equal(tracker.signal(198)?.active, true);
+  assert.equal(tracker.signal(200), null);
+});
+
+test('Cline bootstrap accepts fresh active evidence but rejects old active snapshots', () => {
+  const now = 1_000_000;
+  assert.equal(clineSnapshotBootstrapEligible({ status: 'active' }, now - CLINE_IN_PROGRESS_MAX_MS + 1, now), true);
+  assert.equal(clineSnapshotBootstrapEligible({ status: 'active' }, now - CLINE_IN_PROGRESS_MAX_MS - 1, now), false);
+  assert.equal(clineSnapshotBootstrapEligible({ status: 'complete' }, now, now), false);
 });
 
 test('Cline adapter is registry-backed, dynamic, and never a capacity source', () => {

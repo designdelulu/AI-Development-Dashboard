@@ -9,7 +9,7 @@ import { readPlanCapacity } from './capacity.js';
 import { shareableStack, manifest, privateInventory, publicMetricOptions, createSnapshot, shareCardSvg, setupPrompt } from './sharing.js';
 import { claudeLiveDecision, cursorLiveDecision, isCursorTranscriptPath, isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
-import { ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
+import { clineSnapshotBootstrapEligible, ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
 import { clineHostForInstallation, clineHostForPath, clineInstallation, clineLiveDecision, readClineSessionMetadata } from './cline.js';
 import { loadSettings, saveSettings } from './config.js';
 import { releaseInfo } from './release.js';
@@ -297,7 +297,7 @@ function emitLiveSignal(agent, candidate, previous, next) {
   while (liveActivityEvents[0] && new Date(liveActivityEvents[0].timestamp).getTime() < cutoff) liveActivityEvents.shift();
 }
 
-function observeLivePath(agent, candidate) {
+function observeLivePath(agent, candidate, { bootstrap = false } = {}) {
   if (agent && candidate && !isLiveActivityPath(agent, candidate)) return;
   const previous = liveFileSizes.get(candidate);
   const next = candidate ? (() => { try { const stat = fs.statSync(candidate); return { size: stat.size, mtimeMs: stat.mtimeMs }; } catch { return null; } })() : null;
@@ -354,6 +354,15 @@ function observeLivePath(agent, candidate) {
       return;
     }
     const metadata = readClineSessionMetadata(candidate, { hostHint: clineHostForPath(candidate, clineInstallationForLive()) });
+    // A baseline is not itself work evidence.  It may bootstrap a currently
+    // running Cline turn only when the structured active snapshot was updated
+    // recently.  Older active snapshots remain watchable but cannot become
+    // Working until a fresh lifecycle/fingerprint change arrives.
+    if (bootstrap && !clineSnapshotBootstrapEligible(metadata, next?.mtimeMs)) {
+      liveFiles.set(candidate, agent);
+      liveFileSizes.set(candidate, next);
+      return;
+    }
     const lifecycle = clineSessionTracker.observe(candidate, metadata, Date.now());
     const decision = clineLiveDecision(candidate, previous, next, metadata);
     liveFiles.set(candidate, agent);
@@ -383,7 +392,10 @@ function seedLivePath(agent, source, filename, size, mtimeMs) {
 function recordLiveActivity(agent, source, filename, kind = 'event', size = null, mtimeMs = null) {
   const candidate = filename ? path.resolve(source, String(filename)) : null;
   if (!candidate) return;
-  if (kind === 'baseline') return seedLivePath(agent, source, filename, size, mtimeMs);
+  if (kind === 'baseline') {
+    if (agent === 'Cline') return observeLivePath(agent, candidate, { bootstrap: true });
+    return seedLivePath(agent, source, filename, size, mtimeMs);
+  }
   observeLivePath(agent, candidate);
 }
 function pollLiveFiles() { for (const [file, agent] of liveFiles) observeLivePath(agent, file); }

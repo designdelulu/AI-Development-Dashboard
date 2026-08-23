@@ -6,7 +6,22 @@ import { readClineSessionMetadata } from './cline.js';
 const MAX_APPENDED_JSONL_BYTES = 256 * 1024;
 export const CLAUDE_IN_PROGRESS_MAX_MS = 5 * 60_000;
 export const CURSOR_IN_PROGRESS_MAX_MS = 5 * 60_000;
-export const CLINE_IN_PROGRESS_MAX_MS = 5 * 60_000;
+// Cline's session snapshot is a sparse lifecycle record.  Real observations
+// on the installed Cursor extension showed roughly minute-long gaps between
+// structural writes during a long-running turn, so the lease is measured from
+// the last validated progress rather than from turn start.  Fifteen minutes is
+// deliberately finite: it tolerates a slow remote model/tool without allowing
+// an abandoned active snapshot to become a permanent Working state.
+export const CLINE_IN_PROGRESS_MAX_MS = 15 * 60_000;
+
+// A server restart may see a historical snapshot whose last status was still
+// active.  Only a recently written active snapshot is safe to bootstrap as a
+// current turn; otherwise it is merely retained for future change detection.
+export function clineSnapshotBootstrapEligible(metadata, mtimeMs, now = Date.now(), maxAgeMs = CLINE_IN_PROGRESS_MAX_MS) {
+  if (metadata?.status !== 'active' || !Number.isFinite(Number(mtimeMs))) return false;
+  const age = now - Number(mtimeMs);
+  return age >= -10_000 && age <= maxAgeMs;
+}
 
 function jsonRows(text, { skipFirst = false } = {}) {
   const lines = text.split('\n');
@@ -143,7 +158,7 @@ export class ClineSessionTracker {
 
   observe(file, metadata = null, at = Date.now()) {
     if (!file) return { started: false, completed: false, active: false };
-    const prior = this.sessions.get(file) || { startedAt: null, status: null, fingerprint: null, expired: false, model: null, provider: null, gateway: null, host: null };
+    const prior = this.sessions.get(file) || { startedAt: null, lastProgressAt: null, leaseUntil: null, status: null, fingerprint: null, expired: false, model: null, provider: null, gateway: null, host: null };
     let started = false;
     let completed = false;
     const fingerprint = metadata?.sourceFingerprint || null;
@@ -155,19 +170,31 @@ export class ClineSessionTracker {
     if (metadata?.status === 'active') {
       // An unchanged active snapshot is not a fresh turn. Once the bounded
       // orphan hold expires, do not re-arm it until the source fingerprint
-      // changes or a completion record is observed.
+      // changes or a completion record is observed.  While the lease is
+      // valid, however, sparse snapshots remain Working; a remote model or a
+      // long tool can legitimately leave the file unchanged for a while.
       if (prior.startedAt == null && (prior.status !== 'active' || changed || !prior.expired)) started = true;
       if (started || prior.startedAt != null) {
         prior.startedAt = prior.startedAt || at;
+        if (started || changed || prior.lastProgressAt == null) {
+          prior.lastProgressAt = at;
+          prior.leaseUntil = at + this.maxAgeMs;
+        } else if (prior.leaseUntil == null) {
+          prior.leaseUntil = (prior.lastProgressAt || prior.startedAt) + this.maxAgeMs;
+        }
         prior.expired = false;
       }
     } else if (metadata?.status === 'complete') {
       if (prior.startedAt != null) completed = true;
       prior.startedAt = null;
+      prior.lastProgressAt = null;
+      prior.leaseUntil = null;
       prior.expired = false;
     } else if (metadata?.status === 'attention') {
       // Attention is not in-progress work; retain no Working hold.
       prior.startedAt = null;
+      prior.lastProgressAt = null;
+      prior.leaseUntil = null;
       prior.expired = false;
     }
     prior.status = metadata?.status || prior.status;
@@ -183,8 +210,11 @@ export class ClineSessionTracker {
   signal(now = Date.now()) {
     let since = null;
     for (const session of this.sessions.values()) {
-      if (session.startedAt == null || now - session.startedAt > this.maxAgeMs) {
+      const leaseUntil = session.leaseUntil ?? ((session.lastProgressAt || session.startedAt || 0) + this.maxAgeMs);
+      if (session.startedAt == null || now > leaseUntil) {
         session.startedAt = null;
+        session.lastProgressAt = null;
+        session.leaseUntil = null;
         session.expired = true;
         continue;
       }
