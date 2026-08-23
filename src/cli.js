@@ -223,8 +223,9 @@ function emitLiveSignal(agent, candidate, previous, next) {
     liveFiles.set(candidate, agent);
     liveFileSizes.set(candidate, next);
   }
-  // A fresh structured task-complete marker is sticky while the same session is
-  // quiet. Any later local activity clears it—silence alone never creates it.
+  // Only an explicit unresolved attention request is sticky while the same
+  // session is quiet. Normal completion is deliberately not an attention
+  // marker; later local activity/resolution clears any request.
   if (attention) attentionSignals.set(agent, attention);
   else if (signal) attentionSignals.delete(agent);
   if (!signal) return;
@@ -352,6 +353,12 @@ function liveState() {
     samplePresence.runtimes = runtimes;
   }
   const presenceStates = samplePresence();
+  // Attention is an in-memory current condition, not durable history. A
+  // confirmed runtime exit resolves it before the next process launch; a
+  // reopened runtime must emit a fresh explicit request to become Needs You.
+  for (const [agent, presence] of Object.entries(presenceStates)) {
+    if (presence?.state === 'closed') attentionSignals.delete(agent);
+  }
   snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: claudeInProgress ? { Claude: claudeInProgress } : {}, presenceStates });
   snapshot.presence = presenceStates;
   snapshot.agents = detectAgents();

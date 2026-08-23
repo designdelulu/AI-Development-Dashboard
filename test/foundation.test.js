@@ -292,7 +292,7 @@ test('OpenRouter analytics schema ignores unsupported fields and preserves decla
 
 function antigravityStatus(overrides = {}) {
   return {
-    schemaVersion: 1, capturedAt: '2026-08-22T12:00:00.000Z',
+    schemaVersion: 1, capturedAt: new Date().toISOString(),
     model: { id: 'claude-sonnet-4', displayName: 'Claude Sonnet 4' },
     workspace: { projectDir: '/projects/alpha' }, version: '1.1.17', planTier: 'Pro',
     contextWindow: { totalInputTokens: 1200, totalOutputTokens: 200, contextWindowSize: 200000, usedPercentage: 12, remainingPercentage: 88, currentUsage: { inputTokens: 800, outputTokens: 100, cacheReadInputTokens: 250, cacheCreationInputTokens: 50 } },

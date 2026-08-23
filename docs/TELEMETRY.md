@@ -12,6 +12,10 @@ Live Agent Activity keeps process/runtime presence separate from validated AI wo
 
 **Working** and **Recently Active** still require validated local work evidence. Cursor opening, Cursor project/window startup, generic process presence, Claude statusline helpers, quota refreshes, and dashboard-generated files remain non-work signals. A Closed lane remains visible for an observed live-capable runtime and says `Last AI activity … ago` rather than implying it has been closed for that interval.
 
+### Attention is a current state
+
+`Needs You` is reserved for an allowlisted, structured request that is still unresolved—such as an approval, permission, or explicit input request. A normal turn-completion record (including Codex `event_msg.payload.type: task_complete`) means the runtime finished that turn; it does not mean the user must respond. Attention clears on a structured resolution or subsequent work, and a bounded safety expiry prevents an undetectable stale marker from becoming a day-old current state. When the runtime exits, presence state takes precedence and the lane is **Closed**. Historical attention timestamps, when retained for diagnostics, must be presented as history (for example, `Last needed attention … ago`) rather than as the current state.
+
 ## Token Activity display scale
 
 Token Activity totals remain the normalized local calendar totals described in `METRICS.md`. Contributor bars are selected-range **observed-token shares** and use the same denominator as their printed percentage; the adaptive intensity display is a separate surface. The Live Feed’s adaptive intensity display separately stores a versioned local numeric scale: current-day Fresh + Output, a 30-completed-day recent P95 summary, and a completed-day lifetime high. It reads no raw transcript content and makes no network request. Cache reads/creation remain part of observed totals but do not set the primary intensity bar.
