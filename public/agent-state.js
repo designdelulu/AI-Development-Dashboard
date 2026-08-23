@@ -1,6 +1,9 @@
 export const AGENT_STATES={working:'Working',waiting:'Needs You',recent:'Recently Active',idle:'Idle',closed:'Closed',presenceUnknown:'Presence Unknown',unknown:'Unknown'};
 export const WORKING_GRACE_MS=12_000;
-export const RECENT_ACTIVE_WINDOW_MS=300_000;
+// Recent is a short transition state, not a historical activity label. A
+// runtime that remains open but has no new validated work becomes Idle after
+// this window.
+export const RECENT_ACTIVE_WINDOW_MS=30_000;
 export const ATTENTION_MAX_AGE_MS=900_000;
 export const TIMING_VERSION=2;
 export const TIMING_TRANSITION_LIMIT=96;

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { classifyAgentState } from '../public/agent-state.js';
-import { ClaudeToolTracker, claudeToolLifecycleEvents, cursorTranscriptHasAgentTurn } from '../src/live-work.js';
+import { ClaudeToolTracker, CursorTurnTracker, claudeToolLifecycleEvents, cursorTranscriptHasAgentTurn, cursorTurnLifecycle } from '../src/live-work.js';
 import { liveStatesFromEvents } from '../src/resume.js';
 
 const tempJsonl = (rows = []) => {
@@ -44,4 +44,14 @@ test('Cursor transcript startup markers are not agent work while real user/assis
   assert.equal(cursorTranscriptHasAgentTurn([{ type: 'turn_ended', status: 'success' }]), false);
   assert.equal(cursorTranscriptHasAgentTurn([{ type: 'user', text: 'private prompt' }]), true);
   assert.equal(cursorTranscriptHasAgentTurn([{ type: 'assistant', text: 'private response' }]), true);
+  assert.equal(cursorTranscriptHasAgentTurn([{ type: 'message', message: { role: 'assistant', content: 'private' } }]), true);
+  assert.deepEqual(cursorTurnLifecycle([{ type: 'turn_started' }, { type: 'turn_ended', status: 'success' }]), [{ type: 'started' }, { type: 'completed' }]);
+});
+
+test('Cursor structured turn stays Working through sparse planning and clears on completion', () => {
+  const tracker = new CursorTurnTracker({ maxAgeMs: 60_000 });
+  assert.equal(tracker.observe('/tmp/cursor.jsonl', [{ type: 'turn_started' }], 1_000).started, true);
+  assert.equal(tracker.signal(30_000)?.active, true);
+  assert.equal(tracker.observe('/tmp/cursor.jsonl', [{ type: 'turn_ended', status: 'success' }], 31_000).completed, true);
+  assert.equal(tracker.signal(31_001), null);
 });

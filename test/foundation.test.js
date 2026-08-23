@@ -560,6 +560,16 @@ test('lifecycle startup surfaces the child bind error instead of waiting for the
   assert.equal(readLifecycleEvents(paths.lifecycleFile).at(-1).message.includes('/private/path'), false);
 });
 
+test('lifecycle startup timeout terminates the detached child it spawned', async () => {
+  const root = temp('lifecycle-timeout'), paths = { dataDir: root, runtimeFile: path.join(root, 'runtime.json'), logFile: path.join(root, 'runtime.log'), lifecycleFile: path.join(root, 'lifecycle.jsonl') };
+  let killed = null;
+  const child = { pid: 48123, once() { return this; }, unref() {}, kill(signal) { killed = signal; } };
+  const result = await startService({ paths, script: path.join(root, 'bin.js'), port: 4177, timeoutMs: 1, portProbe: async () => false, spawnProcess: () => child, sleep: async () => {} });
+  assert.equal(result.reasonCode, 'health-timeout');
+  assert.equal(killed, 'SIGTERM');
+  assert.equal(readRuntime(paths.runtimeFile), null);
+});
+
 test('lifecycle event log is bounded and stores only sanitized stage metadata', () => {
   const root = temp('lifecycle-log'), file = path.join(root, 'lifecycle.jsonl');
   for (let i = 0; i < 220; i++) appendLifecycleEvent(file, { stage: `stage-${i}`, message: `/Users/ericbarker/private prompt body ${'x'.repeat(500)}` });

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 // ignores all transcript text, tool arguments, command bodies, and results.
 const MAX_APPENDED_JSONL_BYTES = 256 * 1024;
 export const CLAUDE_IN_PROGRESS_MAX_MS = 5 * 60_000;
+export const CURSOR_IN_PROGRESS_MAX_MS = 5 * 60_000;
 
 function jsonRows(text, { skipFirst = false } = {}) {
   const lines = text.split('\n');
@@ -51,7 +52,81 @@ export function claudeToolLifecycleEvents(rows = []) {
 // a user asked its agent to work. User/assistant turn rows are safe structural
 // evidence; their bodies are never retained.
 export function cursorTranscriptHasAgentTurn(rows = []) {
-  return rows.some((row) => ['user', 'assistant'].includes(String(row?.type || row?.role || '').toLowerCase()));
+  return rows.some((row) => {
+    const type = String(row?.type || row?.role || '').toLowerCase();
+    const nestedRole = String(row?.message?.role || row?.message?.type || '').toLowerCase();
+    return ['user', 'assistant', 'turn_started', 'turn_start', 'agent_turn_started', 'composer_turn_started'].includes(type)
+      || ['user', 'assistant'].includes(nestedRole)
+      || (type === 'message' && ['user', 'assistant'].includes(nestedRole));
+  });
+}
+
+const CURSOR_TURN_START_TYPES = new Set(['user', 'assistant', 'turn_started', 'turn_start', 'agent_turn_started', 'composer_turn_started']);
+const CURSOR_TURN_END_TYPES = new Set(['turn_ended', 'turn_end', 'turn_complete', 'turn_completed', 'agent_turn_completed', 'composer_turn_completed']);
+
+function cursorRowType(row = {}) {
+  return String(row?.type || row?.role || row?.event || '').toLowerCase();
+}
+
+function cursorRowRole(row = {}) {
+  return String(row?.message?.role || row?.message?.type || '').toLowerCase();
+}
+
+export function cursorTurnLifecycle(rows = []) {
+  const events = [];
+  for (const row of rows) {
+    const type = cursorRowType(row);
+    const role = cursorRowRole(row);
+    if (CURSOR_TURN_END_TYPES.has(type) || (type === 'status' && ['complete', 'completed', 'success', 'done'].includes(String(row?.status || '').toLowerCase()))) events.push({ type: 'completed' });
+    else if (CURSOR_TURN_START_TYPES.has(type) || ['user', 'assistant'].includes(role)) events.push({ type: 'started' });
+  }
+  return events;
+}
+
+export class CursorTurnTracker {
+  constructor({ maxAgeMs = CURSOR_IN_PROGRESS_MAX_MS } = {}) {
+    this.maxAgeMs = maxAgeMs;
+    this.sessions = new Map();
+  }
+
+  observe(file, rows = [], at = Date.now()) {
+    if (!file) return { started: false, completed: false, active: false };
+    const prior = this.sessions.get(file) || { startedAt: null };
+    let started = false;
+    let completed = false;
+    for (const event of cursorTurnLifecycle(rows)) {
+      if (event.type === 'started') {
+        if (prior.startedAt == null) started = true;
+        prior.startedAt = at;
+      } else if (event.type === 'completed') {
+        if (prior.startedAt != null) completed = true;
+        prior.startedAt = null;
+      }
+    }
+    this.sessions.set(file, prior);
+    return { started, completed, active: prior.startedAt != null };
+  }
+
+  remove(file) { this.sessions.delete(file); }
+  clear() { this.sessions.clear(); }
+
+  signal(now = Date.now()) {
+    let since = null;
+    for (const session of this.sessions.values()) {
+      if (session.startedAt == null || now - session.startedAt > this.maxAgeMs) {
+        session.startedAt = null;
+        continue;
+      }
+      since = since == null ? session.startedAt : Math.min(since, session.startedAt);
+    }
+    return since == null ? null : {
+      active: true,
+      since: new Date(since).toISOString(),
+      source: 'cursor-structured-turn-lifecycle',
+      confidence: 'Structured',
+      reason: 'A Cursor transcript structurally identifies an AI turn still in progress.'
+    };
+  }
 }
 
 export class ClaudeToolTracker {
@@ -73,6 +148,7 @@ export class ClaudeToolTracker {
   }
 
   remove(file) { this.sessions.delete(file); }
+  clear() { this.sessions.clear(); }
 
   signal(now = Date.now()) {
     let since = null;

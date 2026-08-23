@@ -3,7 +3,7 @@ import { ADAPTER_CONTRACT_VERSION } from './contract.js';
 export const manifest = {
   id: 'codex', contractVersion: ADAPTER_CONTRACT_VERSION, adapterVersion: 1,
   displayName: 'Codex CLI', kind: 'local', risk: 'local-read',
-  runtime: { sourceKey: 'Codex', agent: 'Codex', host: 'Codex CLI', presence: { processNames: ['codex'] } },
+  runtime: { sourceKey: 'Codex', agent: 'Codex', host: 'Codex CLI', presence: { processNames: ['codex', 'codex-cli'] } },
   capabilities: { discover: 'local', history: 'exact', live: 'file-growth', tokens: 'exact', capacity: 'native', models: 'exact', projects: 'exact', health: true }
 };
 

@@ -3,7 +3,7 @@ import { ADAPTER_CONTRACT_VERSION } from './contract.js';
 export const manifest = {
   id: 'claude', contractVersion: ADAPTER_CONTRACT_VERSION, adapterVersion: 1,
   displayName: 'Claude Code', kind: 'local', risk: 'local-read',
-  runtime: { sourceKey: 'Claude', agent: 'Claude', host: 'Claude Code', presence: { processPathIncludes: ['/claude-code/'] } },
+  runtime: { sourceKey: 'Claude', agent: 'Claude', host: 'Claude Code', presence: { processNames: ['claude', 'claude-code'], processPathIncludes: ['/claude-code/', '/claude/'] } },
   capabilities: { discover: 'local', history: 'exact', live: 'file-growth', tokens: 'exact', capacity: 'partial', models: 'exact', projects: 'exact', health: true }
 };
 

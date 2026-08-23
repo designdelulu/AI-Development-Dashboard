@@ -5,6 +5,7 @@ export function lifecyclePaths({ root, dataDir = process.env.AI_DASHBOARD_DATA_D
   const resolvedData = path.resolve(dataDir || path.join(root || process.cwd(), '.dashboard-data'));
   return {
     dataDir: resolvedData,
+    indexFile: path.join(resolvedData, 'index.json'),
     runtimeFile: path.join(resolvedData, 'runtime.json'),
     logFile: path.join(resolvedData, 'runtime.log'),
     lifecycleFile: path.join(resolvedData, 'lifecycle.jsonl'),
