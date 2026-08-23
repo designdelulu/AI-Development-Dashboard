@@ -160,6 +160,12 @@ test('dynamic lanes use declared runtimes, preserve host/model separation, and s
   assert.equal(brand('Claude').file, 'claude.png');
 });
 
+test('live runtime model metadata is shown before a historical session refresh', () => {
+  const lanes = liveLanes([], [], { runtimes: [{ id: 'cline', agent: 'Cline', host: 'Cursor', model: 'stealth/ox-alpha', modelLabel: 'stealth/ox-alpha', liveCapable: true }] });
+  assert.equal(lanes[0].model, 'stealth/ox-alpha');
+  assert.equal(lanes[0].host, 'Cursor');
+});
+
 test('live feed signal uses working, recent, then idle', () => {
   assert.equal(liveFeedSignalState({ Claude: { state: 'Working' }, Codex: { state: 'Idle' } }).mode, 'working');
   assert.equal(liveFeedSignalState({ Claude: { state: 'Recently Active' }, Codex: { state: 'Idle' } }).mode, 'recent');

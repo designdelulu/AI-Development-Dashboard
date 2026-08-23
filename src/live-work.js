@@ -143,19 +143,35 @@ export class ClineSessionTracker {
 
   observe(file, metadata = null, at = Date.now()) {
     if (!file) return { started: false, completed: false, active: false };
-    const prior = this.sessions.get(file) || { startedAt: null };
+    const prior = this.sessions.get(file) || { startedAt: null, status: null, fingerprint: null, expired: false, model: null, provider: null, gateway: null, host: null };
     let started = false;
     let completed = false;
+    const fingerprint = metadata?.sourceFingerprint || null;
+    const changed = fingerprint != null && fingerprint !== prior.fingerprint;
+    if (metadata?.route?.model) prior.model = metadata.route.model;
+    if (metadata?.route?.provider) prior.provider = metadata.route.provider;
+    if (metadata?.route?.gateway) prior.gateway = metadata.route.gateway;
+    if (metadata?.host) prior.host = metadata.host;
     if (metadata?.status === 'active') {
-      if (prior.startedAt == null) started = true;
-      prior.startedAt = prior.startedAt || at;
+      // An unchanged active snapshot is not a fresh turn. Once the bounded
+      // orphan hold expires, do not re-arm it until the source fingerprint
+      // changes or a completion record is observed.
+      if (prior.startedAt == null && (prior.status !== 'active' || changed || !prior.expired)) started = true;
+      if (started || prior.startedAt != null) {
+        prior.startedAt = prior.startedAt || at;
+        prior.expired = false;
+      }
     } else if (metadata?.status === 'complete') {
       if (prior.startedAt != null) completed = true;
       prior.startedAt = null;
+      prior.expired = false;
     } else if (metadata?.status === 'attention') {
       // Attention is not in-progress work; retain no Working hold.
       prior.startedAt = null;
+      prior.expired = false;
     }
+    prior.status = metadata?.status || prior.status;
+    prior.fingerprint = fingerprint || prior.fingerprint;
     this.sessions.set(file, prior);
     return { started, completed, active: prior.startedAt != null };
   }
@@ -169,6 +185,7 @@ export class ClineSessionTracker {
     for (const session of this.sessions.values()) {
       if (session.startedAt == null || now - session.startedAt > this.maxAgeMs) {
         session.startedAt = null;
+        session.expired = true;
         continue;
       }
       since = since == null ? session.startedAt : Math.min(since, session.startedAt);
@@ -178,7 +195,11 @@ export class ClineSessionTracker {
       since: new Date(since).toISOString(),
       source: 'cline-structured-session-lifecycle',
       confidence: 'Structured',
-      reason: 'A Cline session structurally identifies an AI turn still in progress.'
+      reason: 'A Cline session structurally identifies an AI turn still in progress.',
+      model: [...this.sessions.values()].find((session) => session.startedAt === since)?.model || null,
+      provider: [...this.sessions.values()].find((session) => session.startedAt === since)?.provider || null,
+      gateway: [...this.sessions.values()].find((session) => session.startedAt === since)?.gateway || null,
+      host: [...this.sessions.values()].find((session) => session.startedAt === since)?.host || null
     };
   }
 }

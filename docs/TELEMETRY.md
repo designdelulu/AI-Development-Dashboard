@@ -14,6 +14,10 @@ Live Agent Activity keeps process/runtime presence separate from validated AI wo
 
 The shared header label **Dashboard live** describes the localhost service/data refresh, not current AI work. Agent activity is reported separately by the Live Agent Activity lanes and the sidebar signal.
 
+### Live evidence can arrive before historical discovery
+
+The live transport is independent of the asynchronous historical/index scan. A validated turn or session lifecycle event can therefore publish a runtime lane and its Working state before the first full catalog is ready; `/api/live-state` carries only the small normalized runtime catalog needed to hydrate that lane, and the browser merges it without refetching the historical index. A lane's semantic state does not require waveform samples: a sparse or quiet validated turn remains Working, while the waveform remains an honest visualization of observed pulses. Unchanged Cline completion snapshots are not re-emitted as zero-byte activity, so a completed session can settle through Recent to Idle.
+
 ### Attention is a current state
 
 `Needs You` is reserved for an allowlisted, structured request that is still unresolved—such as an approval, permission, or explicit input request. A normal turn-completion record (including Codex `event_msg.payload.type: task_complete`) means the runtime finished that turn; it does not mean the user must respond. Attention clears on a structured resolution or subsequent work, and a bounded safety expiry prevents an undetectable stale marker from becoming a day-old current state. When the runtime exits, presence state takes precedence and the lane is **Closed**. Historical attention timestamps, when retained for diagnostics, must be presented as history (for example, `Last needed attention … ago`) rather than as the current state.

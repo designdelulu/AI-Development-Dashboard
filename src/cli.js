@@ -3,14 +3,14 @@ import path from 'node:path';
 import http from 'node:http';
 import { execFile, execFileSync, spawn as spawnProcess } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { defaultSources, derive, scan, applyProjectMetadata, PROJECT_STATUSES, achievementsFor, SCHEMA_VERSION } from './core.js';
+import { defaultAdapterRegistry, defaultSources, derive, scan, applyProjectMetadata, PROJECT_STATUSES, achievementsFor, SCHEMA_VERSION } from './core.js';
 import { createSystemSampler, liveStateSnapshot, sessionFileSignal } from './activity.js';
 import { readPlanCapacity } from './capacity.js';
 import { shareableStack, manifest, privateInventory, publicMetricOptions, createSnapshot, shareCardSvg, setupPrompt } from './sharing.js';
 import { claudeLiveDecision, cursorLiveDecision, isCursorTranscriptPath, isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
 import { ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
-import { clineHostForPath, clineInstallation, clineLiveDecision, readClineSessionMetadata } from './cline.js';
+import { clineHostForInstallation, clineHostForPath, clineInstallation, clineLiveDecision, readClineSessionMetadata } from './cline.js';
 import { loadSettings, saveSettings } from './config.js';
 import { releaseInfo } from './release.js';
 import { tokenReportFromCalendar } from './tokens.js';
@@ -25,7 +25,7 @@ import { autostartPlan } from './lifecycle/autostart.js';
 import { serviceStatus, startService, stopService } from './lifecycle/service.js';
 import { createRediscoveryScheduler } from './rediscovery.js';
 import { installMode, updateGitCheckout } from './lifecycle/update.js';
-import { mergeObservedIdentities } from './runtime-registry.js';
+import { mergeObservedIdentities, runtimeCatalogForLiveEvidence } from './runtime-registry.js';
 import { createPresenceSampler, PRESENCE_POLL_MS, processSnapshotFromOutput } from './runtime-presence.js';
 import { validateProjectRoots } from './onboarding.js';
 import { createOpenRouterService } from './openrouter/service.js';
@@ -358,7 +358,10 @@ function observeLivePath(agent, candidate) {
     const decision = clineLiveDecision(candidate, previous, next, metadata);
     liveFiles.set(candidate, agent);
     liveFileSizes.set(candidate, next);
-    if (!decision.emit && !lifecycle.started && !lifecycle.completed) return;
+    // A completed snapshot may be touched repeatedly by the host. Only the
+    // first tracker transition (or genuine growth) is a live signal; unchanged
+    // status writes must not create zero-byte pulses that pin Working forever.
+    if (!(lifecycle.started || lifecycle.completed || (decision.emit && decision.reason === 'session-growth'))) return;
     emitLiveSignal(agent, candidate, previous, next);
     return;
   }
@@ -414,10 +417,10 @@ function startLiveWatcherWorker(sources, rediscovery, lifecycle) {
     return null;
   }
 }
-function availableAgentNames(current = index()) {
+function availableAgentNames(current = index(), runtimeCatalog = current.runtimeCatalog) {
   const detected = detectAgents();
   const installed = Object.entries(detected).filter(([, info]) => info?.available).map(([agent]) => agent);
-  const live = current.runtimeCatalog?.liveRuntimes?.map((runtime) => runtime.agent).filter(Boolean) || [];
+  const live = runtimeCatalog?.liveRuntimes?.map((runtime) => runtime.agent).filter(Boolean) || [];
   return [...new Set([...installed, ...live])];
 }
 function capacitySnapshot() {
@@ -466,12 +469,23 @@ function startPresencePolling() {
   presencePollTimer.unref?.();
 }
 function liveState() {
-  const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity });
+  const current = applyCachedViewMeta() || index();
   const claudeInProgress = claudeToolTracker.signal();
   const cursorInProgress = cursorTurnTracker.signal();
   const clineInProgress = clineSessionTracker.signal();
-  const current = applyCachedViewMeta() || index();
-  const runtimes = current.runtimeCatalog?.liveRuntimes || [];
+  const liveAgents = [...new Set([
+    ...liveActivityEvents.map((event) => event.agent).filter(Boolean),
+    ...(claudeInProgress ? ['Claude'] : []),
+    ...(cursorInProgress ? ['Cursor'] : []),
+    ...(clineInProgress ? ['Cline'] : [])
+  ])];
+  const manifests = current.adapterManifests?.length ? current.adapterManifests : defaultAdapterRegistry().manifests();
+  const liveCatalog = runtimeCatalogForLiveEvidence(current.runtimeCatalog || {}, manifests, liveAgents, { Cline: clineHostForInstallation(clineInstallationForLive()) || 'Cursor' }, { Cline: clineInProgress || {} });
+  const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity, runtimeCatalog: liveCatalog });
+  // Presence sampling should use the same live catalog sent to the browser.
+  // A validated signal can precede the asynchronous historical scan; keeping
+  // the old catalog here would leave that lane without a presence state.
+  const runtimes = liveCatalog.liveRuntimes || [];
   if (!samplePresence || samplePresence.runtimes !== runtimes) {
     samplePresence = presenceSampler(runtimes);
     samplePresence.runtimes = runtimes;
@@ -488,7 +502,7 @@ function liveState() {
       if (agent === 'Cline') clineSessionTracker.clear();
     }
   }
-  snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(current), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: { ...(claudeInProgress ? { Claude: claudeInProgress } : {}), ...(cursorInProgress ? { Cursor: cursorInProgress } : {}), ...(clineInProgress ? { Cline: clineInProgress } : {}) }, presenceStates });
+  snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(current, liveCatalog), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: { ...(claudeInProgress ? { Claude: claudeInProgress } : {}), ...(cursorInProgress ? { Cursor: cursorInProgress } : {}), ...(clineInProgress ? { Cline: clineInProgress } : {}) }, presenceStates });
   snapshot.presence = presenceStates;
   snapshot.agents = detectAgents();
   return snapshot;

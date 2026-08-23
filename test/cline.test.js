@@ -9,7 +9,7 @@ import { discoverClosedTools } from '../src/discovery.js';
 import { ClineSessionTracker } from '../src/live-work.js';
 import { scan } from '../src/core.js';
 import { AdapterRegistry } from '../src/adapters/registry.js';
-import { runtimeCatalog } from '../src/runtime-registry.js';
+import { runtimeCatalog, runtimeCatalogForLiveEvidence } from '../src/runtime-registry.js';
 import * as cursorAdapter from '../src/adapters/cursor.js';
 
 const temp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
@@ -74,18 +74,30 @@ test('unknown Cline schema is skipped without creating fake history or tokens', 
 test('Cline structured session lifecycle keeps real work Working and clears on completion', () => {
   const { home, sessions } = fixture();
   const file = path.join(sessions, 'live.json');
-  write(file, { sessionId: 'live', status: 'running', updatedAt: '2026-08-23T00:00:00Z', manifest: { cwd: home } });
+  write(file, { sessionId: 'live', status: 'running', updatedAt: '2026-08-23T00:00:00Z', manifest: { cwd: home }, providerId: 'openrouter', modelId: 'moonshotai/kimi-live' });
   const metadata = readClineSessionMetadata(file);
   const tracker = new ClineSessionTracker({ maxAgeMs: 60_000 });
   const started = tracker.observe(file, metadata, Date.parse('2026-08-23T00:00:01Z'));
   assert.equal(started.active, true);
   assert.equal(tracker.signal(Date.parse('2026-08-23T00:00:20Z')).active, true);
+  assert.equal(tracker.signal(Date.parse('2026-08-23T00:00:20Z')).model, 'moonshotai/kimi-live');
   write(file, { sessionId: 'live', status: 'completed', updatedAt: '2026-08-23T00:00:21Z', manifest: { cwd: home } });
   const completed = tracker.observe(file, readClineSessionMetadata(file), Date.parse('2026-08-23T00:00:21Z'));
   assert.equal(completed.completed, true);
+  assert.equal(tracker.observe(file, readClineSessionMetadata(file), Date.parse('2026-08-23T00:00:22Z')).completed, false);
   assert.equal(tracker.signal(Date.parse('2026-08-23T00:00:22Z')), null);
   assert.equal(clineLiveDecision(file, { size: 10, mtimeMs: 1 }, { size: 20, mtimeMs: 2 }, readClineSessionMetadata(file)).completed, true);
   assert.equal(clineLiveDecision(file, { size: 20, mtimeMs: 2 }, { size: 20, mtimeMs: 3 }, { status: 'active' }).emit, false);
+});
+
+test('an unchanged active Cline snapshot does not re-arm after the orphan hold expires', () => {
+  const tracker = new ClineSessionTracker({ maxAgeMs: 10 });
+  const active = { status: 'active', sourceFingerprint: '10:1' };
+  assert.equal(tracker.observe('session.json', active, 0).started, true);
+  assert.equal(tracker.signal(11), null);
+  assert.equal(tracker.observe('session.json', active, 12).started, false);
+  assert.equal(tracker.signal(12), null);
+  assert.equal(tracker.observe('session.json', { ...active, sourceFingerprint: '10:2' }, 13).started, true);
 });
 
 test('Cline adapter is registry-backed, dynamic, and never a capacity source', () => {
@@ -164,4 +176,15 @@ test('Cline and Cursor remain distinct runtime identities when both are observed
   assert.deepEqual(catalog.liveRuntimes.map((runtime) => runtime.agent).sort(), ['Cline', 'Cursor']);
   assert.equal(catalog.liveRuntimes.find((runtime) => runtime.agent === 'Cline').host, 'Cursor');
   assert.equal(catalog.liveRuntimes.find((runtime) => runtime.agent === 'Cursor').host, 'Cursor');
+});
+
+test('validated live evidence can hydrate a Cline lane before historical discovery completes', () => {
+  const manifests = [cursorAdapter.manifest, clineAdapter.manifest];
+  const catalog = runtimeCatalogForLiveEvidence({ version: 1, runtimes: [], liveRuntimes: [] }, manifests, ['Cline'], { Cline: 'Cursor' }, { Cline: { model: 'moonshotai/kimi-live', gateway: 'OpenRouter' } });
+  assert.deepEqual(catalog.liveRuntimes.map((runtime) => runtime.agent), ['Cline']);
+  assert.equal(catalog.liveRuntimes[0].host, 'Cursor');
+  assert.equal(catalog.liveRuntimes[0].model, 'moonshotai/kimi-live');
+  assert.equal(catalog.liveRuntimes[0].sourceState.live.evidence[0], 'validated-live-signal');
+  const refreshed = runtimeCatalogForLiveEvidence({ version: 1, runtimes: [{ id: 'cline', agent: 'Cline', host: 'VS Code', liveCapable: true }], liveRuntimes: [{ id: 'cline', agent: 'Cline', host: 'VS Code', liveCapable: true }] }, [clineAdapter.manifest], ['Cline'], { Cline: 'Cursor' }, { Cline: { model: 'moonshotai/kimi-live' } });
+  assert.equal(refreshed.liveRuntimes[0].host, 'Cursor');
 });

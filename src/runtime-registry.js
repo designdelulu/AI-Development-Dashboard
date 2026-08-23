@@ -62,6 +62,38 @@ export function runtimeCatalog(manifests = [], sourceStates = {}, sessions = [])
   };
 }
 
+// Live evidence can arrive before the asynchronous historical scan has
+// produced source states/sessions. Preserve the declared adapter boundary and
+// add only agents that have a current validated signal; presence or an
+// installed extension alone never enters this list.
+export function runtimeCatalogForLiveEvidence(catalog = {}, manifests = [], agents = [], hostOverrides = {}, liveDetails = {}) {
+  const declared = new Map((catalog.runtimes || []).filter((runtime) => runtime?.id).map((runtime) => [runtime.id, runtime]));
+  for (const manifest of manifests || []) {
+    const runtime = runtimeDescriptor(manifest);
+    if (runtime.id && !declared.has(runtime.id)) declared.set(runtime.id, runtime);
+  }
+  const live = new Map((catalog.liveRuntimes || []).filter((runtime) => runtime?.id).map((runtime) => [runtime.id, runtime]));
+  for (const agent of new Set(agents || [])) {
+    const runtime = [...declared.values()].find((item) => item.agent === agent && item.liveCapable);
+    if (!runtime) continue;
+    const host = hostOverrides[agent] || runtime.host;
+    const detail = liveDetails[agent] || {};
+    if (live.has(runtime.id)) {
+      live.set(runtime.id, {
+        ...live.get(runtime.id),
+        host,
+        observedHosts: host ? [host] : live.get(runtime.id).observedHosts || [],
+        ...(detail.model ? { model: detail.model, modelLabel: detail.model } : {}),
+        ...(detail.provider ? { provider: detail.provider } : {}),
+        ...(detail.gateway ? { gateway: detail.gateway } : {})
+      });
+      continue;
+    }
+    live.set(runtime.id, { ...runtime, host, observedHosts: host ? [host] : [], ...(detail.model ? { model: detail.model, modelLabel: detail.model, provider: detail.provider || null, gateway: detail.gateway || null } : {}), sourceState: { live: { state: 'active', evidence: ['validated-live-signal'] } } });
+  }
+  return { version: 1, runtimes: [...declared.values()], liveRuntimes: [...live.values()] };
+}
+
 export function observedIdentityRegistry(sessions = [], previous = [], { now = new Date() } = {}) {
   const prior = new Map((previous || []).map((item) => [item.key, item]));
   const seenAt = new Date(now).toISOString();

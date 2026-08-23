@@ -97,6 +97,8 @@ Native agent behaviors are represented as `Automation` capabilities, distinct fr
 
 Live state has its own bounded transport. The scanner persists historical normalized data, while an in-memory resource sampler and 60-second agent-event ring are delivered through a cache-disabled `/api/live-state` endpoint. The browser polls that endpoint every two seconds. This keeps live UI updates independent of session-history rescans and provider authentication.
 
+Validated live evidence may arrive while the historical catalog is still loading. The endpoint therefore includes a compact runtime-catalog overlay for currently evidenced live agents; the browser merges it into the registry-driven lane renderer and can show Working even when the event ring has no waveform sample yet. Presence remains a separate process signal, and repeated unchanged lifecycle snapshots are not treated as new activity.
+
 The browser derives a conservative live state and timing record without changing that transport. `public/agent-state.js` classifies the current normalized events; `public/signal-field.js` turns the same bounded evidence into deterministic display envelopes. The versioned local timing record stores only aggregate observed durations and a bounded transition list. It begins at first use, treats suspended gaps as unobserved, contains no prompts or transcript content, and is kept outside scanner output so rescans cannot overwrite it. The schema leaves project ID and handoff-cycle attribution as future additions rather than guessing them now.
 
 ## Future directions

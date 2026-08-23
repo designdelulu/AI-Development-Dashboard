@@ -35,9 +35,9 @@ export function liveLanes(events = [], sessions = [], { now = Date.now(), runtim
       eventAgent: runtime.agent,
       host: runtime.host,
       agent: runtime.agent,
-      model: recent?.model || null,
-      modelLabel: recent?.modelLabel || recent?.model || null,
-      provider: recent?.provider || null,
+      model: recent?.model || runtime.model || null,
+      modelLabel: recent?.modelLabel || runtime.modelLabel || recent?.model || runtime.model || null,
+      provider: recent?.provider || runtime.provider || null,
       harness: recent?.harness || runtime.harness || null
     });
   }
