@@ -364,8 +364,10 @@ test('model provider and host stay separate and roles are never invented',()=>{
 test('footer omits the public source link while the repository is private',()=>{
   const privateRelease=releaseInfo({repositoryPublic:false});
   const publicRelease=releaseInfo({repositoryPublic:true});
+  const defaultRelease=releaseInfo({});
   assert.equal(privateRelease.sourceUrl,null);
   assert.equal(publicRelease.sourceUrl,'https://github.com/designdelulu/AI-Development-Dashboard');
+  assert.equal(defaultRelease.sourceUrl,'https://github.com/designdelulu/AI-Development-Dashboard');
   assert.doesNotMatch(footerMarkup(privateRelease),/github.com/);
   assert.match(footerMarkup(publicRelease),/github.com\/designdelulu\/AI-Development-Dashboard/);
   assert.match(footerMarkup(privateRelease),/ericbarker\.co/);

@@ -5,8 +5,10 @@ export const ORGANIZATION_URL = 'https://designdelulu.com';
 export const ORGANIZATION_NAME = 'Design Delulu';
 export const AUTHOR_NAME = 'Eric Barker';
 
-export function releaseInfo(settings = {}, { repositoryPublic = false } = {}) {
-  const publicNow = settings.repositoryPublic === true || repositoryPublic === true;
+export function releaseInfo(settings = {}, { repositoryPublic = true } = {}) {
+  const publicNow = typeof settings.repositoryPublic === 'boolean'
+    ? settings.repositoryPublic
+    : repositoryPublic === true;
   return {
     author: AUTHOR_NAME,
     year: 2026,
