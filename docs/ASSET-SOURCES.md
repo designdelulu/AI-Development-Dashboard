@@ -12,7 +12,7 @@ Each asset remains unmodified in aspect ratio; the dashboard only creates a 512p
 
 ## README and article screenshots
 
-Canonical live-activity capture lives in the Design Delulu article as `designdelulu-site/images/blog/ai-development-dashboard-live-activity-capacity.webp` (real local signal field, privacy-safe). The GitHub README hero `docs/assets/ai-development-dashboard-live-activity.png` is a repository-local PNG derived from that same source. Overview and Live Feed shots remain additional product documentation, not substitutes for the live-activity hero.
+Canonical live-activity capture lives in the Design Delulu article as `designdelulu-site/images/blog/ai-development-dashboard-live-activity-capacity.webp` (real local signal field, privacy-safe). The GitHub README hero `docs/assets/ai-development-dashboard-live-activity.png` is a repository-local PNG derived from that same source. Overview and Live Feed shots remain additional product documentation, not substitutes for the live-activity hero. `docs/assets/ai-development-dashboard-runtime-resources.png` is a current 1440px local Runtime & Resources capture showing only normalized health, resources, observed runtimes, and diagnostics.
 
 ## Achievement badge artwork
 
@@ -29,4 +29,3 @@ Seven owner-supplied sprite sheets (1536×1024, 2×3 of six tiers) were copied f
 | `shipping-streak` | `shipping-streak` | `shipping-streak.png` |
 
 Tiers left-to-right, top-to-bottom: bronze, silver, gold, platinum, diamond, mythic. Share Stats embeds the 160px thumbs; the UI can use the 512px slices. This is local artwork mapping only — not a new achievement system or leaderboard.
-

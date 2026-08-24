@@ -222,7 +222,7 @@ Update privacy/security/contributing documentation in the same commit that intro
 - productivity/quality/employee ranking;
 - Electron/tray app, mobile app, cloud sync, shared account service;
 - OpenBot execution/gateway/container infrastructure;
-- public GitHub/release/publishing action until explicitly requested.
+- public GitHub/release/publishing is complete for the current beta; future publication changes remain subject to explicit scope and the release checklist.
 
 ## Tests
 

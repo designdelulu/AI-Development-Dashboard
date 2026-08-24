@@ -24,6 +24,10 @@ Bug reporting is a separate explicit opt-in surface. The lower-left UI action an
 
 If you find a path that can expose private data through a public export, generated share card, localhost endpoint, or committed file, please report it privately to the repository owner. Do not include real secrets or raw transcripts in an issue.
 
+## Report a vulnerability privately
+
+Please do not open a public issue for a security vulnerability. Use the repository's **Security** tab and **Report a vulnerability** private advisory flow when it is available. If GitHub does not show that option, contact the repository owner through the GitHub profile linked from the repository and include only the minimum reproduction details needed to establish contact. Do not send credentials, real prompts, source code, or user data.
+
 ## Sensitive material never accepted in contributions
 
 - API keys, access tokens, cookies, passwords, or environment values

@@ -2,12 +2,14 @@
 
 ## Use the dashboard
 
-- [Getting started and lifecycle commands](../README.md#get-running-in-a-few-minutes)
+- [Getting started and lifecycle commands](../README.md#quick-start)
 - [Architecture](ARCHITECTURE.md)
 - [Telemetry sources and connected services](TELEMETRY.md)
 - [Metric definitions](METRICS.md)
 - [Runtime & Resources operating console](ARCHITECTURE.md#runtime--resources-operating-console)
 - [Support and privacy-safe bug reports](../README.md#something-went-wrong)
+- [Public bug report form](https://github.com/designdelulu/AI-Development-Dashboard/issues/new?template=bug_report.yml)
+- [Feature request form](https://github.com/designdelulu/AI-Development-Dashboard/issues/new?template=feature_request.yml)
 - [Privacy](../PRIVACY.md)
 - [Security](../SECURITY.md)
 - [Sharing privacy](SHARING-PRIVACY.md)
@@ -25,5 +27,6 @@
 - [Environment audit](ENVIRONMENT-AUDIT.md)
 - [Release checklist](RELEASE-CHECKLIST.md)
 - [Asset sources](ASSET-SOURCES.md)
+- [Changelog](../CHANGELOG.md)
 
 Planning and research documents describe decisions and future work; use the README, Architecture, Telemetry, and Metrics documents for current product behavior.

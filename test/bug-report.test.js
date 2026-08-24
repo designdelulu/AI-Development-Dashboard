@@ -88,5 +88,6 @@ test('bug-report UI keeps review, screenshot, and local-save controls explicit',
   assert.match(app, /id="bug-review-diagnostics"/);
   assert.match(app, /id="bug-review-report"/);
   assert.match(app, /id="bug-save"/);
+  assert.match(app, /issues\/new\?template=bug_report\.yml/);
   assert.match(app, /Nothing is sent automatically/);
 });

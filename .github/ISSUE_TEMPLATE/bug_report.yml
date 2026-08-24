@@ -1,0 +1,44 @@
+name: Bug report
+description: Report a reproducible dashboard problem
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please remove private information before submitting. Never paste API keys, prompts, private source code, credentials, cookies, or full private paths.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and what you expected instead.
+      placeholder: The dashboard showed…
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: List the smallest steps that reproduce the issue.
+      placeholder: |
+        1. Run…
+        2. Open…
+        3. Observe…
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Dashboard version or commit
+      placeholder: 0.1.0 / commit SHA
+  - type: input
+    id: os
+    attributes:
+      label: OS and Node version
+      placeholder: macOS 15.x, Node 20.x
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics (optional)
+      description: Paste only the reviewed allowlisted diagnostics from Report a bug or ai-dashboard report-bug.

@@ -57,4 +57,4 @@ Share Stack, Manifest, Setup Prompt, and Share Story cards use an allowlisted pu
 
 ## Public GitHub
 
-The repository is private until an explicit visibility change. The in-app Source code footer link stays off until `repositoryPublic` is enabled in `.dashboard-data/settings.json` after that change. A public release still requires the history audit in [docs/RELEASE-CHECKLIST.md](docs/RELEASE-CHECKLIST.md).
+The source repository is public, but the dashboard remains local-first and the in-app Source code link is controlled by the local `repositoryPublic` release setting. Public source access does not make local analytics, project metadata, bug bundles, or Connected Services public. `.dashboard-data/` remains local and gitignored. Public issue reporting is an explicit user action; screenshots and report text are never sent automatically.

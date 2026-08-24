@@ -1,8 +1,10 @@
 # AI Development Dashboard
 
-AI Development Dashboard is a **local-first, project-first operating and analytics layer** for developers who use more than one AI coding tool. It observes supported local and explicitly connected sources, then organizes activity around projects, agents, hosts, providers, models, capabilities, capacity, usage, and defensible efficiency evidence.
+AI Development Dashboard is a **local-first, project-first control center for AI-assisted development**. It observes supported local coding tools and explicitly connected sources, then organizes activity around projects, agents, hosts, providers, models, capabilities, capacity, usage, and defensible efficiency evidence.
 
 It is not an AI model, orchestration runtime, model router, generic token counter, or skill marketplace.
+
+[Repository](https://github.com/designdelulu/AI-Development-Dashboard) · [Documentation index](docs/README.md)
 
 ![Live Agent Activity — observed runtime signal field](docs/assets/ai-development-dashboard-live-activity.png)
 
@@ -16,18 +18,26 @@ It is not an AI model, orchestration runtime, model router, generic token counte
 
 ![Overview — pick up where you left off](docs/assets/ai-development-dashboard-overview.png)
 
-## Get running in a few minutes
+## Quick Start
 
-**Requirements:** Node.js 20+, Git, and macOS for the currently validated experience. The local server binds to loopback only. Windows and Linux have not yet received the same end-to-end validation.
+**Requirements:** Node.js 20 or newer, Git, and macOS for the currently validated experience. The server stays on `127.0.0.1`; Windows and Linux have not received the same end-to-end validation yet.
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/designdelulu/AI-Development-Dashboard.git
 cd AI-Development-Dashboard
 npm run setup
 ai-dashboard open
 ```
 
-`npm run setup` checks Node, runs `npm install`, links the local `ai-dashboard` command for the current user, and checks lifecycle status. It does not use `sudo`, edit your shell profile, start a background service, or contact a provider.
+`npm run setup` checks Node, installs the dependencies from the committed lockfile, links the `ai-dashboard` command for your user, and checks lifecycle status. It does not use `sudo`, edit a shell profile, start a background service, configure an external agent, or contact a provider.
+
+That is the complete first-run path. After setup, the normal commands are simply:
+
+```bash
+ai-dashboard open
+ai-dashboard status
+ai-dashboard stop
+```
 
 When the dashboard opens, it starts a localhost service, opens the browser, scans configured project roots, detects supported local tools and retained evidence, registers observed providers/models, and updates source lifecycle state. No provider account or sign-up is required for Local Core.
 
@@ -49,8 +59,10 @@ ai-dashboard open
 ```bash
 ai-dashboard open      # start the owned local service and open the dashboard
 ai-dashboard status    # inspect the owned service
+ai-dashboard doctor    # run read-only lifecycle diagnostics
 ai-dashboard stop      # stop only the owned dashboard service
 ai-dashboard update    # update AI Development Dashboard itself
+ai-dashboard report-bug # save a privacy-safe local report bundle
 ```
 
 Run `ai-dashboard --help` for the complete lifecycle command list.
@@ -107,6 +119,10 @@ Antigravity can be found while closed from safe local installation evidence. Its
 - **Efficiency** — private work-block/model/validator evidence and comparison cycles only when observations form defensible cohorts. No universal productivity score, leaderboard, or historical task fabrication.
 - **Share Stats** — an allowlisted local share-story builder that excludes private project data, credentials, raw request IDs, and efficiency data.
 
+![Runtime & Resources — local health, resources, observed runtimes, and diagnostics](docs/assets/ai-development-dashboard-runtime-resources.png)
+
+Runtime & Resources is available under **Maintenance**. It shows the Dashboard build, health, uptime, local resource snapshot, observed runtimes, bounded diagnostics, and safe Dashboard-only Restart/Stop controls. It does not manage external agents or run arbitrary commands.
+
 ### Token Activity
 
 The Token Activity meter is an adaptive **visual aid**. Its intensity uses Fresh + Output, while Cache Read, Cache Creation, and Observed token activity remain visible separately. Contributor bars are true selected-range observed-token shares, not intensity bars. Comparable completed local-day windows establish a recent P95 heavy range and a retained lifetime high, so ordinary activity does not permanently look maxed out. It never changes underlying totals, evidence labels, billing, or subscription usage. See [metrics](docs/METRICS.md#adaptive-token-activity-intensity).
@@ -145,7 +161,7 @@ You do not need to inspect or kill a PID manually.
 
 ## Something went wrong?
 
-When the dashboard is running, use **Report a bug** in the lower-left sidebar. Add a description, optionally choose one screenshot, review the report and sanitized diagnostics, and save a local report bundle before sharing it. Nothing is transmitted automatically and there is no report receiver configured by default.
+When the dashboard is running, use **Report a bug** in the lower-left sidebar. Add a description, optionally choose one screenshot, review the report and sanitized diagnostics, and save a local report bundle before sharing it. On the public repository, the drawer also offers the GitHub issue form; opening it is always an explicit user action and screenshots remain manual attachments. Nothing is transmitted automatically and there is no report receiver configured by default.
 
 When the dashboard will not open:
 
@@ -155,6 +171,8 @@ ai-dashboard report-bug
 ```
 
 `report-bug` works with the service stopped and stores a reviewable bundle under `.dashboard-data/bug-reports/`. It never includes prompts, transcript text, source code, terminal output, credentials, cookies, environment values, or private absolute paths. A future explicitly configured HTTPS receiver may accept a report only after an explicit submit; otherwise attach the local bundle manually.
+
+Public issue forms: [report a bug](https://github.com/designdelulu/AI-Development-Dashboard/issues/new?template=bug_report.yml) · [request a feature](https://github.com/designdelulu/AI-Development-Dashboard/issues/new?template=feature_request.yml). Never paste API keys, prompts, private source code, or credentials into an issue.
 
 ## Documentation
 
@@ -168,4 +186,4 @@ npm run scan
 npm start
 ```
 
-The repository is currently private beta. It is MIT licensed ([LICENSE](LICENSE)); a public release still requires the [release checklist](docs/RELEASE-CHECKLIST.md).
+This is an early public beta. It is MIT licensed ([LICENSE](LICENSE)). Contributions are welcome through the [contributor guide](CONTRIBUTING.md); the [security policy](SECURITY.md) and [privacy model](PRIVACY.md) explain the boundaries before you connect any service.
