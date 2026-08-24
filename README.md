@@ -103,7 +103,7 @@ Antigravity can be found while closed from safe local installation evidence. Its
 - **Overview** — project-first resume context, handoff, and active work.
 - **Live Feed** — dynamic 0…N local runtime lanes, token activity, capacity sources, and secondary system telemetry.
 - **Projects** — canonical Git project inventory and private working memory.
-- **Capabilities & Maintenance** — evidence-based inventory and review signals; no automatic skill installation or mutation.
+- **Capabilities & Maintenance** — evidence-based inventory plus a private Runtime & Resources console for Dashboard health, observed runtime presence, local machine resources, bounded diagnostics, and safe Dashboard-only Restart/Stop controls; no generic process manager or automatic skill installation.
 - **Efficiency** — private work-block/model/validator evidence and comparison cycles only when observations form defensible cohorts. No universal productivity score, leaderboard, or historical task fabrication.
 - **Share Stats** — an allowlisted local share-story builder that excludes private project data, credentials, raw request IDs, and efficiency data.
 

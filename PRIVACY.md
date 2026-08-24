@@ -4,6 +4,18 @@ AI Development Dashboard is local-first. The Local Core—the scanner, localhost
 
 Every `ai-dashboard open` performs bounded local discovery, and the running dashboard debounces known adapter-root changes with a five-minute fallback check. These probes use allowlisted executable/application/local-root metadata only: they do not launch tools, read prompt/transcript bodies, inspect browser data, or contact provider/GitHub services. New observed model IDs are normalized and retained locally with first/last-seen metadata. This is separate from optional Connected Services.
 
+## Runtime and machine resources
+
+The private Maintenance Runtime & Resources console stores and displays only
+normalized local metadata: Dashboard lifecycle identity, adapter/runtime
+presence and health, sampled CPU/memory/disk values, and bounded sanitized
+lifecycle events. Apple Silicon is labelled as unified memory and no dedicated
+VRAM is fabricated. Runtime/resource data is not added to Share Stats. Dashboard
+Restart/Stop controls are same-origin local actions for the verified owned
+Dashboard process; no generic process-manager controls, shell commands, sudo,
+or PID-only kills are exposed. External runtimes remain observe-only unless a
+future adapter can prove ownership.
+
 ## Explicit bug reporting
 
 Bug reporting is opt-in. A lower-left **Report a bug** action is available when the dashboard is running, and `ai-dashboard report-bug` is available when it is not. Nothing is transmitted when an error occurs or when the dashboard starts. Reports are first written locally as a small bundle under `.dashboard-data/bug-reports/` so the user can review and attach them manually. Diagnostics are built from an allowlist of dashboard version/commit, schema version, OS/Node summary, lifecycle state/stage, boolean permission state, adapter lifecycle summaries, aggregate counts, and bounded sanitized lifecycle events. Prompt bodies, responses, transcript text, source code, terminal/test output, tool arguments, credentials, cookies/JWTs, environment values, private notes, project names, and full absolute paths are excluded. The description and context are user-authored fields and should be reviewed before sharing. A screenshot is included only when the user explicitly selects one and confirms it in the report; the UI warns that images may contain private project information.

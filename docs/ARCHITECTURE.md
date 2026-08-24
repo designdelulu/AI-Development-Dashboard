@@ -63,6 +63,29 @@ Startup separates process spawn, loopback bind/liveness, and background discover
 
 Autostart is off. Phase 1 generates per-user LaunchAgent, Task Scheduler, or systemd-user plans only; it neither creates a job nor publishes a package. The foundation does not yet expose an enable toggle because it has no owned install/remove implementation.
 
+## Runtime & Resources operating console
+
+Maintenance includes a private **Runtime & Resources** console backed by the
+same lifecycle and adapter registries as the rest of the product. The compact
+`/api/runtime-status`, `/api/system-resources`, and `/api/diagnostics` views do
+not hydrate the historical index or read transcripts. They expose the owned
+Dashboard service, observed live-capable runtimes, local CPU/memory/disk
+metadata, honest hardware-unavailability states, and a bounded sanitized
+lifecycle-event window. Service presence and AI activity remain separate
+dimensions: an open runtime can be Idle, a closed runtime is Closed, and only
+validated adapter evidence can be Working.
+
+Only the Dashboard service has controls in this phase. Restart and Stop are
+same-origin loopback actions protected by the per-instance session/control
+boundary and reuse the owned runtime record, graceful shutdown, bounded
+fallback, and ownership verification. External runtimes are observe-only until
+an adapter can prove lifecycle ownership; no generic process manager, shell
+input, sudo, or PID-only signal is exposed. Apple Silicon reports unified
+memory and does not invent dedicated VRAM. NVIDIA parsing is feature-probed and
+fixture-tested, but an unavailable GPU is shown as unavailable rather than
+zero. Resource sampling is cached and lightweight; it never enters Share
+Stats.
+
 ## Live refresh
 
 An owned startup scan worker performs the initial discovery after the listener is ready. A separate child owns known adapter-root filesystem watchers; the server receives metadata-only file events while a five-minute fallback incremental check covers missed changes. Session files retain their source fingerprint, so unchanged transcripts are reused rather than reparsed. The browser checks the compact normalized view every 15 seconds and redraws only after a new index timestamp. A mostly idle dashboard performs no repeated transcript parsing; a watcher event triggers one coalesced incremental scan. Git-derived project metrics are refreshed only with that scan.

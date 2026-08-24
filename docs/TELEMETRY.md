@@ -6,6 +6,25 @@ Every `ai-dashboard open` performs a local adapter discovery pass; known adapter
 
 The loopback server binds and completes its liveness handshake before the initial scan. The first discovery pass runs in an owned child process so a slow project/Git scan cannot block `/api/health`, `stop`, or the browser shell. Capacity refreshes and process-presence enumeration also run outside request handling; `/api/status` and `/api/live-state` use compact cached metadata rather than hydrating the full historical index. Known adapter-root watchers live in a small child process, while the five-minute scheduler remains the fallback. A timed-out or failed startup terminates the child it spawned and cancels its helpers, so a failed `open` cannot leave orphan indexing work behind. A bounded `.dashboard-data/lifecycle.jsonl` records sanitized startup/listening/discovery/error stages; it contains no raw process output, prompts, transcripts, code, credentials, or environment values.
 
+## Runtime & Resources console
+
+Maintenance exposes a private Runtime & Resources view backed by the existing
+owned lifecycle record, adapter registry, presence sampler, and cached system
+sampler. The compact runtime-status, system-resources, and diagnostics views do
+not hydrate the historical index or reread raw transcripts. They report the
+Dashboard service, observed live-capable runtimes, local CPU/memory/disk data,
+honest unavailable hardware states, and a bounded sanitized lifecycle-log
+window.
+
+Dashboard Restart and Stop are explicit same-origin loopback actions. They are
+available only for the Dashboard process that owns its current instance record
+and use bounded graceful shutdown plus the existing ownership-verified
+fallback. External runtimes remain observe-only when no adapter can prove
+lifecycle ownership. No generic process manager, shell input, sudo, or PID-only
+kill is exposed. Apple Silicon is represented as unified memory; dedicated
+VRAM is not invented. Runtime/resource metadata is local and excluded from
+Share Stats.
+
 ## Runtime presence versus AI work
 
 Live Agent Activity keeps process/runtime presence separate from validated AI work. An asynchronous local process check runs at most every five seconds and reads only `ps comm` executable paths, never command arguments, prompts, source code, terminal output, or tool input. A recent good snapshot is retained for a bounded stale window when one poll fails; only after that window does the adapter surface **Presence Unknown**. An adapter may declare an executable-name/path hint when that is safe and reliable. That signal can render **Idle** (runtime present, no validated AI work), **Closed** (runtime absent), or **Presence Unknown**; it never emits an activity event, waveform pulse, token observation, Needs You state, or global live indicator.

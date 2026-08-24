@@ -87,6 +87,17 @@ The live-pipeline repair also corrected the Canvas clock: `requestAnimationFrame
 
 The frozen resource strip had a separate frontend failure: the first Overview render asked the contextual-copy selector to inspect `resources.ram` while the initial live resource state was still `null`. That exception stopped startup before the live polling timers were registered. The selector now treats the pre-sample state as unavailable, and startup fetches one live snapshot before rendering. System values and agent activity then continue through the same bounded transport without reloading.
 
+## Runtime & Resources operational values
+
+The Maintenance Runtime & Resources console is an operational view, not an
+efficiency or Share Stats metric. Dashboard health, runtime presence, CPU,
+memory, disk, GPU/VRAM, uptime, and lifecycle diagnostics are normalized local
+metadata. CPU/memory/disk samples are current host observations and are never
+attributed to an agent or model. Apple Silicon is reported as unified memory;
+dedicated VRAM is unavailable rather than inferred. External runtimes remain
+observe-only unless ownership is proven. Runtime values are sampled from cached
+local state and do not require historical-index or transcript rereads.
+
 ## Plan capacity
 
 Plan capacity remains separate from local token analytics. Codex session records currently expose native structured `rate_limits` metadata including used percentage, window length, reset timestamp, and plan type; the dashboard normalizes this into percent remaining and refreshes its read-only local snapshot once per minute. Claude Code 2.1.80+ can expose official statusline `rate_limits.five_hour` / `seven_day` `used_percentage` and `resets_at` after the first API response for Claude.ai Pro/Max. The dashboard captures only those fields into `~/.claude/usage_state.json` via a statusline helper that **preserves any existing statusline command**. Remaining percent is `100 - used`. Missing fields are Waiting / Unsupported / Unavailable — never a fake 0%. Cursor still has no supported local plan-capacity source. Discovered Claude and Cursor capacity sources expose a compact user-initiated external **View usage** action even while their runtime is Closed; it opens the official provider account page in the normal browser and never passes dashboard credentials or scrapes the page. No cookies, credentials, browser DOM, or unofficial provider endpoints are used.

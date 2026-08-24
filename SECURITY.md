@@ -4,6 +4,14 @@ AI Development Dashboard is local-first and binds its server to `127.0.0.1`. Its
 
 The local service records an owned runtime instance only after binding. Stop/status verify its random local control token and instance identity rather than trusting a PID alone; browser state-changing requests also require same-origin access and an HttpOnly local session cookie. No remote integration is enabled by default.
 
+Maintenance Runtime & Resources keeps this boundary narrow: the Dashboard
+Restart and Stop actions accept either the per-instance control token used by
+the CLI or the same-origin HttpOnly browser session, then operate only on the
+currently owned Dashboard instance. Agent runtimes are observe-only unless an
+adapter declares verified lifecycle ownership. Resource and diagnostic
+endpoints are read-only, bounded, local, and do not expose command lines,
+environment values, credentials, prompts, source code, or terminal output.
+
 OpenRouter Phase 2A accepts only a management credential supplied as `OPENROUTER_MANAGEMENT_KEY` to the local process. It persists only an opaque environment reference, allows only analytics metadata/query and credits endpoints, uses no inference endpoint or key-management endpoint, and sends no prompts, code, transcripts, or request IDs. Connecting enables the distinct connected-service network permission; it grants no installation, capability-write, or agent-configuration permission.
 
 Cline is a separate local inference agent that may run inside Cursor or VS Code. The dashboard does not read Cline's OpenRouter/provider inference key, editor secret storage, provider settings, or message bodies. A Cursor-hosted Cline session may identify `Cline → Cursor → OpenRouter → provider → model` for local metadata, but account-level OpenRouter analytics is never assigned to Cline (or any other host) from timestamps alone. Any future correlation must use an explicit shared request identifier and a reviewed allowlist.

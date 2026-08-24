@@ -32,6 +32,7 @@ import { createOpenRouterService } from './openrouter/service.js';
 import { disableAntigravityCapture, enableAntigravityCapture, previewAntigravityCapture } from './antigravity.js';
 import { applyEfficiencyMetadata, beginComparisonTracking, createCycle, loadEfficiencyMetadata, recordOutcome, removeCycle, saveEfficiencyMetadata } from './efficiency-store.js';
 import { efficiencySnapshot } from './efficiency.js';
+import { buildDashboardService, buildRuntimeServices, createRuntimeResourceSampler, normalizeDiagnostics, runtimeStatusSnapshot } from './runtime-resources.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const paths = lifecyclePaths({ root });
@@ -47,7 +48,7 @@ let liveIndex = null, liveIndexMtime = 0, liveViewJson = null, liveViewMtime = 0
 // Keep lifecycle-only CLI commands cheap. System sampling and capacity scans
 // touch local process/filesystem state and are initialized only by the server,
 // never while importing `cli.js` for status/stop/doctor.
-let sampleSystem = null, latestSystem = null, latestCapacity = null;
+let sampleSystem = null, runtimeResourceSampler = null, latestSystem = null, latestCapacity = null;
 const liveActivityEvents = [], liveFileSizes = new Map(), liveFiles = new Map(), attentionSignals = new Map(), cursorLiveCarries = new Map(), previewSnapshots = new Map();
 const claudeToolTracker = new ClaudeToolTracker();
 const cursorTurnTracker = new CursorTurnTracker();
@@ -542,6 +543,8 @@ export function serve({ port = 4177 } = {}) {
   let capacityProcess = null;
   let serverBound = false;
   let serverFailed = false;
+  let restartRequested = false;
+  let restartTimer = null;
   let postBindTimer = null;
   let startupDiscoveryTimer = null;
   const startBackgroundDiscovery = (reason = 'startup discovery') => {
@@ -613,16 +616,72 @@ export function serve({ port = 4177 } = {}) {
   const instanceId = runtimeToken();
   const sessionToken = runtimeToken();
   let localOrigin = `http://127.0.0.1:${port}`;
+  const localControlAuthorized = (req) => {
+    const origin = req.headers.origin || '';
+    if (origin !== localOrigin) return false;
+    return req.headers['x-ai-dashboard-control'] === controlToken || hasSession(req, sessionToken);
+  };
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
     if (url.pathname === '/api/health') return json(res, { state: 'ok', localOnly: true, instanceId: req.headers['x-ai-dashboard-control'] === controlToken ? instanceId : null });
+    if (url.pathname === '/api/runtime-status' && req.method === 'GET') {
+      const current = applyCachedViewMeta() || startupLoadingIndex();
+      // Keep the compact operating view independent from a cold historical
+      // index load. If no cached view exists yet, liveState() may reuse this
+      // empty-but-normalized catalog while discovery continues in its worker.
+      if (!liveIndex) liveIndex = current;
+      const live = liveState();
+      const runtime = readRuntime(paths.runtimeFile);
+      const scanRunning = Boolean(backgroundScan && backgroundScan.exitCode == null);
+      const dashboard = buildDashboardService({
+        runtime,
+        version: dashboardVersion(),
+        head: dashboardCommit(),
+        serverState: {
+          bound: serverBound,
+          status: serverFailed ? 'Unhealthy' : serverBound ? (latestSystem ? 'Healthy' : 'Starting') : 'Starting',
+          health: serverFailed ? 'Unhealthy' : serverBound ? 'Healthy' : 'Starting',
+          indexReady: Boolean(fs.existsSync(viewFile)),
+          discovery: scanRunning ? 'running' : 'idle',
+          cpuPercent: latestSystem?.dashboard?.cpuPercent ?? null,
+          memoryBytes: latestSystem?.dashboard?.rss ?? null,
+          checks: {
+            health: serverFailed ? 'unhealthy' : serverBound ? 'healthy' : 'starting',
+            liveState: serverFailed ? 'unavailable' : 'available',
+            index: fs.existsSync(viewFile) ? 'ready' : 'loading',
+            discovery: scanRunning ? 'running' : 'idle'
+          },
+          error: serverFailed ? 'The local dashboard server reported an error; run ai-dashboard doctor.' : null
+        }
+      });
+      const services = buildRuntimeServices({ runtimes: live.runtimeCatalog?.liveRuntimes || current.runtimeCatalog?.liveRuntimes || [], presence: live.presence || {}, liveStates: live.operator?.liveStates || {} });
+      const diagnostics = { discovery: rediscovery.state(), scan: scanRunning ? 'running' : 'idle' };
+      return json(res, runtimeStatusSnapshot({ dashboard, services, resources: latestSystem, discovery: diagnostics }));
+    }
+    if (url.pathname === '/api/system-resources' && req.method === 'GET') {
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+      return json(res, latestSystem);
+    }
+    if (url.pathname === '/api/diagnostics' && req.method === 'GET') {
+      const category = url.searchParams.get('category') || 'All';
+      const limit = Math.min(160, Math.max(1, Number(url.searchParams.get('limit')) || 80));
+      return json(res, { schemaVersion: 1, category, events: normalizeDiagnostics(readLifecycleEvents(paths.lifecycleFile, 160), { category, limit }), filters: ['All', 'Lifecycle', 'Discovery', 'Live telemetry', 'Services', 'Warnings', 'Errors'], bounded: true, privacy: 'Sanitized lifecycle metadata only.' });
+    }
     if (url.pathname === '/api/bug-report/diagnostics' && req.method === 'GET') {
       const diagnostics = await localBugDiagnostics();
       return json(res, { diagnostics, endpointConfigured: Boolean(configuredReportEndpoint()) });
     }
+    if (url.pathname === '/api/control/restart' && req.method === 'POST') {
+      if (!localControlAuthorized(req)) return json(res, { error: 'Unauthorized local control request.' }, 403);
+      if (!serverBound || serverFailed) return json(res, { error: 'The dashboard server is not healthy enough to restart.' }, 409);
+      restartRequested = true;
+      lifecycle({ stage: 'restart-requested', message: 'Dashboard restart requested by the local Maintenance console.' });
+      json(res, { state: 'restarting', message: 'Dashboard restart scheduled.' });
+      setTimeout(() => { try { server.close(); server.closeAllConnections?.(); } catch {} }, 25).unref();
+      return;
+    }
     if (url.pathname === '/api/control/stop' && req.method === 'POST') {
-      const origin = req.headers.origin || '';
-      if (req.headers['x-ai-dashboard-control'] !== controlToken || origin !== localOrigin) return json(res, { error: 'Unauthorized local control request.' }, 403);
+      if (!localControlAuthorized(req)) return json(res, { error: 'Unauthorized local control request.' }, 403);
       json(res, { state: 'stopping' });
       setTimeout(() => {
         server.close();
@@ -805,9 +864,29 @@ export function serve({ port = 4177 } = {}) {
     if (backgroundScan && backgroundScan.exitCode == null) { try { backgroundScan.kill('SIGTERM'); } catch {} }
     backgroundScan = null;
   };
+  const spawnOwnedRestart = () => {
+    if (!restartRequested || serverFailed) return;
+    restartRequested = false;
+    try {
+      const output = fs.openSync(paths.logFile, 'a', 0o600);
+      const child = spawnProcess(process.execPath, [path.resolve(process.argv[1]), 'serve', '--port', String(port)], { detached: true, stdio: ['ignore', output, output], env: { ...process.env, AI_DASHBOARD_DATA_DIR: dataDir } });
+      child.once?.('error', (error) => lifecycle({ stage: 'restart-error', code: error?.code || 'RESTART_ERROR', message: error?.message || 'Dashboard restart could not start.' }));
+      child.unref();
+      try { fs.closeSync(output); } catch {}
+      lifecycle({ stage: 'restart-spawned', message: 'Owned dashboard restart process spawned.' });
+    } catch (error) {
+      lifecycle({ stage: 'restart-error', code: error?.code || 'RESTART_ERROR', message: error?.message || 'Dashboard restart could not start.' });
+    }
+  };
   server.once('close', () => {
     stopOwnedWorkers();
-    if (removeRuntimeIfOwned(paths.runtimeFile, { pid: process.pid, instanceId })) lifecycle({ stage: 'server-close', message: 'Owned dashboard server stopped.' });
+    if (removeRuntimeIfOwned(paths.runtimeFile, { pid: process.pid, instanceId })) lifecycle({ stage: 'server-close', message: restartRequested ? 'Owned dashboard server closed for restart.' : 'Owned dashboard server stopped.' });
+    if (restartRequested) {
+      restartTimer = setTimeout(() => { restartTimer = null; spawnOwnedRestart(); }, 120);
+      // Keep the short hand-off timer referenced. Once the HTTP server closes,
+      // it may be the only remaining event-loop handle; unref'ing it lets the
+      // parent exit before the replacement process is spawned.
+    }
   });
   server.once('error', (error) => {
     serverFailed = true;
@@ -841,11 +920,12 @@ export function serve({ port = 4177 } = {}) {
       // sampler's normalized total/free-memory fallback is sufficient until
       // the UI is established; no health check should wait on a host command.
       if (!sampleSystem) sampleSystem = createSystemSampler({ workingMemory: () => null });
-      latestSystem ||= sampleSystem();
+      if (!runtimeResourceSampler) runtimeResourceSampler = createRuntimeResourceSampler({ baseSampler: sampleSystem, root: path.parse(root).root });
+      latestSystem ||= runtimeResourceSampler();
       watcherProcess = startLiveWatcherWorker(sources, rediscovery, lifecycle);
       startPresencePolling();
       rediscovery.start();
-      setInterval(() => { latestSystem = sampleSystem(); }, 2_000).unref();
+      setInterval(() => { latestSystem = runtimeResourceSampler ? runtimeResourceSampler() : sampleSystem(); }, 2_000).unref();
       setInterval(pollLiveFiles, 1_500).unref();
       // Capacity is deliberately delayed; it is a lower-frequency panel and
       // some sources walk large local histories. Never make startup health
