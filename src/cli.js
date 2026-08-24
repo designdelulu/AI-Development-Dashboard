@@ -10,7 +10,7 @@ import { shareableStack, manifest, privateInventory, publicMetricOptions, create
 import { claudeLiveDecision, cursorLiveDecision, isCursorTranscriptPath, isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
 import { clineSnapshotBootstrapEligible, ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
-import { clineHostForInstallation, clineHostForPath, clineInstallation, clineLiveDecision, readClineSessionMetadata } from './cline.js';
+import { CLINE_DB_LIVE_MAX_AGE_MS, clineDbActiveEligible, clineHostForInstallation, clineHostForPath, clineInstallation, clineLiveDecision, readClineSessionDbMetadata, readClineSessionMetadata } from './cline.js';
 import { loadSettings, saveSettings } from './config.js';
 import { releaseInfo } from './release.js';
 import { tokenReportFromCalendar } from './tokens.js';
@@ -54,7 +54,7 @@ const liveActivityEvents = [], liveFileSizes = new Map(), liveFiles = new Map(),
 const claudeToolTracker = new ClaudeToolTracker();
 const cursorTurnTracker = new CursorTurnTracker();
 const clineSessionTracker = new ClineSessionTracker();
-let liveClineInstallation = null, liveClineInstallationAt = 0;
+let liveClineInstallation = null, liveClineInstallationAt = 0, clineDbPollInFlight = false, clineDbPollTimer = null;
 
 function projectMetadata() { try { return JSON.parse(fs.readFileSync(projectMetaFile, 'utf8')); } catch { return { version: 1, projects: {} }; } }
 function saveProjectMetadata(metadata) { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(projectMetaFile, JSON.stringify(metadata, null, 2)); }
@@ -416,6 +416,51 @@ function recordLiveActivity(agent, source, filename, kind = 'event', size = null
   observeLivePath(agent, candidate);
 }
 function pollLiveFiles() { for (const [file, agent] of liveFiles) observeLivePath(agent, file); }
+
+function appendClineLifecycleEvent(metadata, kind = 'cline-structured-lifecycle') {
+  const now = Date.now();
+  const recent = liveActivityEvents.at(-1);
+  if (recent?.agent === 'Cline' && now - new Date(recent.timestamp).getTime() < 1_000) return;
+  liveActivityEvents.push(sessionFileSignal({
+    agent: 'Cline',
+    host: metadata?.host || 'Cursor',
+    model: metadata?.route?.model || null,
+    timestamp: now,
+    kind,
+    previousSize: 0,
+    size: 0
+  }));
+  const cutoff = now - 60_000;
+  while (liveActivityEvents[0] && new Date(liveActivityEvents[0].timestamp).getTime() < cutoff) liveActivityEvents.shift();
+}
+
+// The session JSON is intentionally retained for history and file-local
+// lifecycle events. Cline 4.1.14's SDK, however, updates the allowlisted
+// sessions.db row while a task is waiting on a remote model or running a
+// tool. Poll that small metadata source off the HTTP path and merge by
+// session id in ClineSessionTracker. No database reads are performed by
+// /api/live-state itself.
+async function pollClineSessionDatabase() {
+  if (clineDbPollInFlight) return;
+  const installation = clineInstallationForLive();
+  if (!installation?.dbFile) return;
+  clineDbPollInFlight = true;
+  try {
+    const rows = await readClineSessionDbMetadata(installation.dbFile, { hostHint: clineHostForInstallation(installation) || 'Cursor', timeoutMs: 900 });
+    const now = Date.now();
+    for (const metadata of rows) {
+      // A historical row can remain marked running after a crash. Only a
+      // freshly updated active row may bootstrap/refresh Working. Terminal
+      // rows are still applied so a known task clears immediately.
+      if (metadata.status === 'active' && !clineDbActiveEligible(metadata, now, CLINE_DB_LIVE_MAX_AGE_MS)) continue;
+      const lifecycle = clineSessionTracker.observe(`db:${metadata.id}`, metadata, now);
+      if (lifecycle.completed && metadata.sourceType === 'cline-session-db') appendClineLifecycleEvent(metadata);
+    }
+  } finally {
+    clineDbPollInFlight = false;
+  }
+}
+
 function sourceWatchList(sources) {
   const list = [];
   const watchKeys = new Set(['claudeRoot', 'codexRoot', 'cursorRoot', 'cursorStorageRoot', 'clineSessionsRoot', 'antigravityRoot', 'antigravityCliRoot']);
@@ -886,6 +931,7 @@ export function serve({ port = 4177 } = {}) {
     if (watcherProcess) { try { watcherProcess.kill('SIGTERM'); } catch {} watcherProcess = null; }
     if (capacityProcess && capacityProcess.exitCode == null) { try { capacityProcess.kill('SIGTERM'); } catch {} capacityProcess = null; }
     if (presencePollTimer) { clearInterval(presencePollTimer); presencePollTimer = null; }
+    if (clineDbPollTimer) { clearInterval(clineDbPollTimer); clineDbPollTimer = null; }
     if (backgroundScan && backgroundScan.exitCode == null) { try { backgroundScan.kill('SIGTERM'); } catch {} }
     backgroundScan = null;
   };
@@ -952,6 +998,12 @@ export function serve({ port = 4177 } = {}) {
       rediscovery.start();
       setInterval(() => { latestSystem = runtimeResourceSampler ? runtimeResourceSampler() : sampleSystem(); }, 2_000).unref();
       setInterval(pollLiveFiles, 1_500).unref();
+      // Cline's SDK session database carries the current task heartbeat even
+      // when its JSON manifest is quiet. Keep this narrow poll independent of
+      // discovery/index refreshes and off the request path.
+      pollClineSessionDatabase().catch(() => {});
+      clineDbPollTimer = setInterval(() => { pollClineSessionDatabase().catch(() => {}); }, 2_000);
+      clineDbPollTimer.unref?.();
       // Capacity is deliberately delayed; it is a lower-frequency panel and
       // some sources walk large local histories. Never make startup health
       // wait for it.

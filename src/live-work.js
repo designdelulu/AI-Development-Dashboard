@@ -158,15 +158,50 @@ export class ClineSessionTracker {
 
   observe(file, metadata = null, at = Date.now()) {
     if (!file) return { started: false, completed: false, active: false };
-    const prior = this.sessions.get(file) || { startedAt: null, lastProgressAt: null, leaseUntil: null, status: null, fingerprint: null, expired: false, model: null, provider: null, gateway: null, host: null };
+    // JSON manifests and the Cline session database describe the same task.
+    // Merge them by the stable session id so a quiet manifest cannot hide a
+    // fresh database heartbeat (or cause a completion update to miss the
+    // existing Working record).
+    const sessionId = metadata?.id ? String(metadata.id) : null;
+    const key = sessionId ? `session:${sessionId}` : file;
+    const priorKey = sessionId
+      ? [...this.sessions.entries()].find(([, value]) => value.sessionId === sessionId)?.[0]
+      : null;
+    const prior = this.sessions.get(key) || (priorKey ? this.sessions.get(priorKey) : null) || this.sessions.get(file) || { sessionId, sourcePath: file, sourcePaths: new Set(), startedAt: null, lastProgressAt: null, leaseUntil: null, status: null, authoritativeStatus: null, databaseRoute: null, fingerprint: null, expired: false, model: null, provider: null, gateway: null, host: null, reasonCode: null };
+    if (priorKey && priorKey !== key) this.sessions.delete(priorKey);
+    prior.sessionId = sessionId || prior.sessionId || null;
+    prior.sourcePath = file || prior.sourcePath;
+    if (!(prior.sourcePaths instanceof Set)) prior.sourcePaths = new Set(prior.sourcePath ? [prior.sourcePath] : []);
+    if (file) prior.sourcePaths.add(file);
     let started = false;
     let completed = false;
     const fingerprint = metadata?.sourceFingerprint || null;
     const changed = fingerprint != null && fingerprint !== prior.fingerprint;
-    if (metadata?.route?.model) prior.model = metadata.route.model;
-    if (metadata?.route?.provider) prior.provider = metadata.route.provider;
-    if (metadata?.route?.gateway) prior.gateway = metadata.route.gateway;
+    const databaseSource = metadata?.sourceType === 'cline-session-db';
+    if (databaseSource) prior.authoritativeStatus = metadata.status || prior.authoritativeStatus;
+    // The lifecycle DB is also the freshest route identity during a live
+    // turn. A quiet JSON manifest can retain the previous task's model, so it
+    // must not overwrite a model/provider/gateway already confirmed by DB.
+    if (databaseSource) {
+      prior.databaseRoute ||= {};
+      if (metadata?.route?.model) prior.databaseRoute.model = metadata.route.model;
+      if (metadata?.route?.provider) prior.databaseRoute.provider = metadata.route.provider;
+      if (metadata?.route?.gateway) prior.databaseRoute.gateway = metadata.route.gateway;
+    }
+    const route = databaseSource ? metadata?.route : (prior.databaseRoute || metadata?.route);
+    if (route?.model) prior.model = route.model;
+    if (route?.provider) prior.provider = route.provider;
+    if (route?.gateway) prior.gateway = route.gateway;
     if (metadata?.host) prior.host = metadata.host;
+    // The reviewed session DB is the stronger lifecycle source. Once it has
+    // recorded a terminal state, a quiet/old JSON manifest cannot re-arm the
+    // same session from a stale `running` snapshot. A genuinely resumed task
+    // will produce a fresh database `running` row and clear this guard.
+    if (metadata?.status === 'active' && prior.authoritativeStatus === 'complete' && !databaseSource) {
+      prior.fingerprint = fingerprint || prior.fingerprint;
+      this.sessions.set(key, prior);
+      return { started: false, completed: false, active: false };
+    }
     if (metadata?.status === 'active') {
       // An unchanged active snapshot is not a fresh turn. Once the bounded
       // orphan hold expires, do not re-arm it until the source fingerprint
@@ -183,6 +218,9 @@ export class ClineSessionTracker {
           prior.leaseUntil = (prior.lastProgressAt || prior.startedAt) + this.maxAgeMs;
         }
         prior.expired = false;
+        prior.reasonCode = databaseSource || (prior.authoritativeStatus === 'active' && prior.databaseRoute?.model)
+          ? 'database-running'
+          : (changed ? 'session-snapshot-progress' : 'active-turn-lease');
       }
     } else if (metadata?.status === 'complete') {
       if (prior.startedAt != null) completed = true;
@@ -190,21 +228,26 @@ export class ClineSessionTracker {
       prior.lastProgressAt = null;
       prior.leaseUntil = null;
       prior.expired = false;
+      prior.reasonCode = metadata?.sourceType === 'cline-session-db' ? 'database-complete' : 'session-complete';
     } else if (metadata?.status === 'attention') {
       // Attention is not in-progress work; retain no Working hold.
       prior.startedAt = null;
       prior.lastProgressAt = null;
       prior.leaseUntil = null;
       prior.expired = false;
+      prior.reasonCode = 'attention-request';
     }
     prior.status = metadata?.status || prior.status;
     prior.fingerprint = fingerprint || prior.fingerprint;
-    this.sessions.set(file, prior);
+    this.sessions.set(key, prior);
     return { started, completed, active: prior.startedAt != null };
   }
 
   observeFile(file, at = Date.now()) { return this.observe(file, readClineSessionMetadata(file), at); }
-  remove(file) { this.sessions.delete(file); }
+  remove(file) {
+    this.sessions.delete(file);
+    for (const [key, value] of this.sessions) if (value.sourcePath === file || value.sourcePaths?.has(file)) this.sessions.delete(key);
+  }
   clear() { this.sessions.clear(); }
 
   signal(now = Date.now()) {
@@ -226,6 +269,7 @@ export class ClineSessionTracker {
       source: 'cline-structured-session-lifecycle',
       confidence: 'Structured',
       reason: 'A Cline session structurally identifies an AI turn still in progress.',
+      reasonCode: [...this.sessions.values()].find((session) => session.startedAt === since)?.reasonCode || 'active-turn-lease',
       model: [...this.sessions.values()].find((session) => session.startedAt === since)?.model || null,
       provider: [...this.sessions.values()].find((session) => session.startedAt === since)?.provider || null,
       gateway: [...this.sessions.values()].find((session) => session.startedAt === since)?.gateway || null,

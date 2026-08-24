@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import crypto from 'node:crypto';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { lookupBinary } from './open-agent.js';
 import { sessionIdentity, inferProvider } from './identity.js';
 import { emptyTokens, tokenActivity } from './core-tokens.js';
@@ -12,6 +14,11 @@ import { aggregateTokenDays, dedupeUsageEvents, tokensFromDays } from './usage-e
 // It never opens providers.json, secret storage, message bodies, or tool input.
 export const CLINE_SCHEMA_VERSION = 1;
 export const CLINE_MAX_SESSION_BYTES = 2 * 1024 * 1024;
+// The installed Cline 4.1.x SDK persists its canonical session lifecycle in
+// sessions.db.  A fresh database timestamp is evidence of a current session;
+// an old row that still says running is not enough to bootstrap live work.
+export const CLINE_DB_LIVE_MAX_AGE_MS = 2 * 60_000;
+const CLINE_DB_HELPER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'cline-sqlite-ro.py');
 
 const CLINE_EXTENSION_IDS = Object.freeze(['saoudrizwan.claude-dev', 'rooveterinaryinc.cline']);
 const JSON_EXT = /\.(?:json|jsonl)$/i;
@@ -270,6 +277,89 @@ export function readClineSessionMetadata(file, { hostHint = null } = {}) {
   const parsed = file.toLowerCase().endsWith('.jsonl') ? parseJsonlFile(file, { hostHint }) : parseJsonFile(file, { hostHint });
   if (!parsed.record) return null;
   return { ...parsed.record, file, sourceFingerprint: sourceFingerprint(file), usage: undefined, usageEvents: parsed.usage || [] };
+}
+
+// Cline's current SDK keeps the durable session lifecycle in SQLite while the
+// adjacent JSON manifest is primarily a creation/history artifact.  Keep this
+// query deliberately narrow: no prompt, message, metadata, credential, or
+// transcript columns are ever selected.
+export function clineDbRowMetadata(row, { hostHint = null } = {}) {
+  if (!row || typeof row !== 'object' || !String(row.session_id || '').trim()) return null;
+  const updatedAt = iso(row.updated_at);
+  const startedAt = iso(row.started_at);
+  const endedAt = iso(row.ended_at);
+  const record = metadataRecord({
+    session_id: row.session_id,
+    pid: row.pid,
+    status: row.status,
+    started_at: row.started_at,
+    ended_at: row.ended_at,
+    provider: row.provider,
+    model: row.model,
+    cwd: row.cwd,
+    workspace_root: row.workspace_root,
+    updated_at: row.updated_at,
+    status_lock: row.status_lock
+  }, '<cline-session-db>', { fallbackId: row.session_id, hostHint });
+  if (!record) return null;
+  return {
+    ...record,
+    // The generic metadata walker intentionally preserves source-agnostic
+    // timestamp behavior. For the lifecycle DB, freshness is specifically
+    // the heartbeat column, not the original session start time.
+    timestamp: updatedAt || record.timestamp,
+    updatedAt,
+    startedAt: startedAt || record.startedAt,
+    endedAt,
+    source: 'cline-session-db',
+    sourceType: 'cline-session-db',
+    sessionDb: true,
+    sourceFingerprint: `db:${row.updated_at || ''}:${row.status_lock ?? ''}:${row.status || ''}:${row.model || ''}`
+  };
+}
+
+export function clineDbActiveEligible(metadata, now = Date.now(), maxAgeMs = CLINE_DB_LIVE_MAX_AGE_MS) {
+  if (!metadata || metadata.status !== 'active') return false;
+  const at = Date.parse(metadata.updatedAt || metadata.timestamp || '');
+  if (!Number.isFinite(at)) return false;
+  const age = Number(now) - at;
+  return age >= -10_000 && age <= maxAgeMs;
+}
+
+export function readClineSessionDbMetadata(dbFile, { hostHint = null, timeoutMs = 1_000 } = {}) {
+  if (!dbFile || !exists(dbFile)) return Promise.resolve([]);
+  return new Promise((resolve) => {
+    let child;
+    let output = '';
+    let settled = false;
+    const finish = (rows = []) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      const parsed = Array.isArray(rows) ? rows.map((row) => clineDbRowMetadata(row, { hostHint })).filter(Boolean) : [];
+      resolve(parsed);
+    };
+    const timer = setTimeout(() => {
+      try { child?.kill('SIGTERM'); } catch {}
+      finish([]);
+    }, Math.max(100, Number(timeoutMs) || 1_000));
+    try {
+      child = spawn('python3', [CLINE_DB_HELPER, dbFile], { stdio: ['pipe', 'pipe', 'ignore'] });
+      child.stdout.on('data', (chunk) => {
+        output += chunk.toString('utf8');
+        if (output.length > 2 * 1024 * 1024) {
+          try { child.kill('SIGTERM'); } catch {}
+          finish([]);
+        }
+      });
+      child.once('error', () => finish([]));
+      child.once('close', (code) => {
+        if (code !== 0 || !output.trim()) return finish([]);
+        try { finish(JSON.parse(output)); } catch { finish([]); }
+      });
+      child.stdin.end();
+    } catch { finish([]); }
+  });
 }
 
 export function clineLiveDecision(file, previous, next, metadata = null) {

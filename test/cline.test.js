@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { clineInstallationState, clineLiveDecision, discoverCline, readClineSessionMetadata, scanCline } from '../src/cline.js';
+import { clineDbActiveEligible, clineDbRowMetadata, clineInstallationState, clineLiveDecision, discoverCline, readClineSessionMetadata, scanCline } from '../src/cline.js';
 import * as clineAdapter from '../src/adapters/cline.js';
 import { discoverClosedTools } from '../src/discovery.js';
 import { CLINE_IN_PROGRESS_MAX_MS, ClineSessionTracker, clineSnapshotBootstrapEligible } from '../src/live-work.js';
@@ -111,6 +111,56 @@ test('Cline active-turn lease is refreshed by structural progress, not original 
   assert.equal(tracker.observe('session.json', { ...first, sourceFingerprint: '10:2' }, 99).started, false);
   assert.equal(tracker.signal(198)?.active, true);
   assert.equal(tracker.signal(200), null);
+});
+
+test('Cline session database rows provide fresh, allowlisted live metadata without content or secrets', () => {
+  const now = Date.parse('2026-08-23T00:10:00.000Z');
+  const metadata = clineDbRowMetadata({
+    session_id: 'db-live', pid: 1234, status: 'running', started_at: '2026-08-23T00:00:00.000Z',
+    updated_at: '2026-08-23T00:09:59.000Z', provider: 'openrouter', model: 'moonshotai/kimi-live',
+    cwd: '/private/project', workspace_root: '/private/project', status_lock: 7,
+    prompt: 'must not escape', messages: 'must not escape', api_key: 'fake-secret'
+  }, { hostHint: 'Cursor' });
+  assert.equal(metadata.id, 'db-live');
+  assert.equal(metadata.status, 'active');
+  assert.equal(metadata.host, 'Cursor');
+  assert.equal(metadata.route.gateway, 'OpenRouter');
+  assert.equal(metadata.route.model, 'moonshotai/kimi-live');
+  assert.equal(metadata.sourceType, 'cline-session-db');
+  assert.equal(metadata.timestamp, '2026-08-23T00:09:59.000Z');
+  assert.equal(metadata.startedAt, '2026-08-23T00:00:00.000Z');
+  assert.equal(clineDbActiveEligible(metadata, now, 120_000), true);
+  assert.doesNotMatch(JSON.stringify(metadata), /must not escape|fake-secret|messages|prompt/i);
+  assert.equal(clineDbActiveEligible({ ...metadata, updatedAt: '2026-08-23T00:07:00.000Z' }, now, 120_000), false);
+});
+
+test('Cline database heartbeat refreshes the same session as a quiet JSON snapshot and completion clears it', () => {
+  const tracker = new ClineSessionTracker({ maxAgeMs: 100 });
+  const json = { id: 'db-session', status: 'active', sourceFingerprint: 'json:1', route: { model: 'stale-model' }, host: 'Cursor' };
+  const db = { id: 'db-session', status: 'active', sourceType: 'cline-session-db', sourceFingerprint: 'db:2:4:running:fresh-model', route: { model: 'fresh-model', gateway: 'OpenRouter' }, host: 'Cursor' };
+  assert.equal(tracker.observe('/sessions/db-session.json', json, 0).started, true);
+  assert.equal(tracker.observe('db:db-session', db, 90).active, true);
+  tracker.observe('/sessions/db-session.json', { ...json, sourceFingerprint: 'json:2', route: { model: 'stale-model-again' } }, 95);
+  const signal = tracker.signal(180);
+  assert.equal(signal?.active, true);
+  assert.equal(signal?.model, 'fresh-model');
+  assert.equal(signal?.reasonCode, 'database-running');
+  const completed = tracker.observe('db:db-session', { ...db, status: 'complete', sourceFingerprint: 'db:3:5:completed:fresh-model' }, 190);
+  assert.equal(completed.completed, true);
+  assert.equal(tracker.signal(190), null);
+  tracker.remove('/sessions/db-session.json');
+  assert.equal(tracker.signal(191), null);
+});
+
+test('a terminal database row prevents a stale JSON active snapshot from re-arming the session', () => {
+  const tracker = new ClineSessionTracker({ maxAgeMs: 100 });
+  tracker.observe('/sessions/resume.json', { id: 'resume', status: 'active', sourceFingerprint: 'json:1' }, 0);
+  tracker.observe('db:resume', { id: 'resume', status: 'active', sourceType: 'cline-session-db', sourceFingerprint: 'db:1', route: { model: 'model-a' } }, 10);
+  tracker.observe('db:resume', { id: 'resume', status: 'complete', sourceType: 'cline-session-db', sourceFingerprint: 'db:2', route: { model: 'model-a' } }, 20);
+  assert.equal(tracker.observe('/sessions/resume.json', { id: 'resume', status: 'active', sourceFingerprint: 'json:2' }, 21).active, false);
+  assert.equal(tracker.signal(21), null);
+  assert.equal(tracker.observe('db:resume', { id: 'resume', status: 'active', sourceType: 'cline-session-db', sourceFingerprint: 'db:3', route: { model: 'model-b' } }, 22).started, true);
+  assert.equal(tracker.signal(22)?.model, 'model-b');
 });
 
 test('Cline bootstrap accepts fresh active evidence but rejects old active snapshots', () => {
