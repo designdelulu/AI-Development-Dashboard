@@ -6,6 +6,21 @@ Every `ai-dashboard open` performs a local adapter discovery pass; known adapter
 
 The loopback server binds and completes its liveness handshake before the initial scan. The first discovery pass runs in an owned child process so a slow project/Git scan cannot block `/api/health`, `stop`, or the browser shell. Capacity refreshes and process-presence enumeration also run outside request handling; `/api/status` and `/api/live-state` use compact cached metadata rather than hydrating the full historical index. Known adapter-root watchers live in a small child process, while the five-minute scheduler remains the fallback. A timed-out or failed startup terminates the child it spawned and cancels its helpers, so a failed `open` cannot leave orphan indexing work behind. A bounded `.dashboard-data/lifecycle.jsonl` records sanitized startup/listening/discovery/error stages; it contains no raw process output, prompts, transcripts, code, credentials, or environment values.
 
+### Loopback ownership and recovery
+
+The lifecycle record is not treated as proof of port ownership by itself. When
+the record is missing, stale, or from an older build, the CLI performs a
+metadata-only local inspection of `127.0.0.1:4177`, checks the dashboard health
+identity, and verifies the listener's dashboard command/path before any
+recovery signal is sent. A verified orphan can be recovered by `open` or
+`stop`; an unrelated or unrecognized listener is never terminated. `status`
+and `doctor` report `stopped`, `orphaned dashboard`, `occupied by another
+application`, `occupied unknown`, `healthy`, or `degraded` rather than calling
+an occupied port stopped. Health includes the dashboard service/build marker
+and a per-instance lifecycle identity, while public status and bug-report
+diagnostics expose only the safe classification—not PIDs, command lines,
+working directories, control tokens, or other process arguments.
+
 ## Runtime & Resources console
 
 Maintenance exposes a private Runtime & Resources view backed by the existing

@@ -133,6 +133,16 @@ See [Privacy](PRIVACY.md), [Security](SECURITY.md), and [sharing privacy](docs/S
 | Update refused because the Git tree is dirty | Commit or stash your own changes, then retry. The updater never overwrites them. |
 | Port or lifecycle issue | Run `ai-dashboard status`, then `ai-dashboard doctor`. |
 
+### Port already in use
+
+The dashboard normally uses `127.0.0.1:4177`. `ai-dashboard doctor` identifies
+whether that port contains a healthy dashboard, an orphaned dashboard, or an
+unrelated local application. `ai-dashboard open` reuses a healthy owned
+instance and safely recovers a verified orphan; it never kills an unrecognized
+Node process or another development server. If another application owns the
+port, stop or reconfigure that application and run `ai-dashboard open` again.
+You do not need to inspect or kill a PID manually.
+
 ## Something went wrong?
 
 When the dashboard is running, use **Report a bug** in the lower-left sidebar. Add a description, optionally choose one screenshot, review the report and sanitized diagnostics, and save a local report bundle before sharing it. Nothing is transmitted automatically and there is no report receiver configured by default.

@@ -33,6 +33,7 @@ import { disableAntigravityCapture, enableAntigravityCapture, previewAntigravity
 import { applyEfficiencyMetadata, beginComparisonTracking, createCycle, loadEfficiencyMetadata, recordOutcome, removeCycle, saveEfficiencyMetadata } from './efficiency-store.js';
 import { efficiencySnapshot } from './efficiency.js';
 import { buildDashboardService, buildRuntimeServices, createRuntimeResourceSampler, normalizeDiagnostics, runtimeStatusSnapshot } from './runtime-resources.js';
+import { DASHBOARD_SERVICE_ID, publicPortOwner } from './lifecycle/port-owner.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const paths = lifecyclePaths({ root });
@@ -128,6 +129,12 @@ function cachedViewJson() {
   } catch {}
   return liveViewJson || JSON.stringify(liveIndex || startupLoadingIndex());
 }
+function cachedViewTag() {
+  try {
+    const stat = fs.statSync(viewFile);
+    return `W/\"${Math.round(stat.mtimeMs)}-${stat.size}\"`;
+  } catch { return null; }
+}
 function refresh(reason = 'manual') {
   if (refreshing) return liveIndex;
   refreshing = true;
@@ -202,6 +209,7 @@ function dashboardVersion() {
 function dashboardCommit() {
   try { return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim() || null; } catch { return null; }
 }
+function dashboardIdentity() { return { service: DASHBOARD_SERVICE_ID, version: dashboardVersion(), commit: dashboardCommit() }; }
 async function localBugDiagnostics() {
   const stored = readStoredIndex();
   // Avoid a loopback self-request while the diagnostics endpoint is being
@@ -209,8 +217,8 @@ async function localBugDiagnostics() {
   // owned server process its runtime record is already authoritative.
   const runtime = readRuntime(paths.runtimeFile);
   const status = runtime?.pid === process.pid
-    ? { state: 'running', runtime }
-    : await serviceStatus(paths, path.resolve(process.argv[1]));
+    ? { state: 'running', runtime, port: runtime.port, portOwner: { classification: 'dashboard', verified: true, occupied: true, health: { state: 'healthy' } } }
+    : await serviceStatus(paths, path.resolve(process.argv[1]), { expectedBuild: dashboardIdentity() });
   const settings = loadSettings(dataDir);
   const recent = readLifecycleEvents(paths.lifecycleFile, 1).at(-1);
   const sourceStates = stored?.sourceStates || {};
@@ -228,7 +236,15 @@ async function localBugDiagnostics() {
     version: dashboardVersion(),
     commit: dashboardCommit(),
     dataSchemaVersion: stored?.schemaVersion || null,
-    lifecycle: { state: status.state, port: status.runtime?.port || 4177, startupStage: recent?.stage || null, startupDurationMs: recent?.durationMs || null },
+    lifecycle: {
+      state: status.state,
+      port: status.runtime?.port || status.port || 4177,
+      portOccupied: status.portOwner?.occupied === true,
+      portOwner: publicPortOwner(status.portOwner)?.state || null,
+      healthState: status.health || status.portOwner?.health?.state || null,
+      startupStage: recent?.stage || null,
+      startupDurationMs: recent?.durationMs || null
+    },
     permissions: settings.permissions,
     adapters,
     counts: { projects: stored?.projects?.length || stored?.repositories?.length || 0, sessions: stored?.sessions?.length || 0, capabilities: stored?.capabilities?.length || 0, usageObservations: stored?.efficiency?.foundation?.usageObservations?.length || 0 }
@@ -534,6 +550,7 @@ function hasSession(req, token) { return String(req.headers.cookie || '').split(
 export function serve({ port = 4177 } = {}) {
   const lifecycle = (event) => appendLifecycleEvent(paths.lifecycleFile, event);
   const startedAt = Date.now();
+  const identity = dashboardIdentity();
   lifecycle({ stage: 'serve-start', message: `Starting local dashboard on port ${port}.` });
   const sources = currentSources();
   let backgroundScan = null;
@@ -623,7 +640,7 @@ export function serve({ port = 4177 } = {}) {
   };
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost');
-    if (url.pathname === '/api/health') return json(res, { state: 'ok', localOnly: true, instanceId: req.headers['x-ai-dashboard-control'] === controlToken ? instanceId : null });
+    if (url.pathname === '/api/health') return json(res, { state: 'ok', service: identity.service, localOnly: true, build: { version: identity.version, commit: identity.commit }, instanceId: req.headers['x-ai-dashboard-control'] === controlToken ? instanceId : null });
     if (url.pathname === '/api/runtime-status' && req.method === 'GET') {
       const current = applyCachedViewMeta() || startupLoadingIndex();
       // Keep the compact operating view independent from a cold historical
@@ -693,7 +710,15 @@ export function serve({ port = 4177 } = {}) {
     }
     const writes = req.method === 'POST';
     if (writes && (req.headers.origin !== localOrigin || !hasSession(req, sessionToken))) return json(res, { error: 'Unauthorized local browser request.' }, 403);
-    if (url.pathname === '/api/data') return jsonText(res, cachedViewJson());
+    if (url.pathname === '/api/data') {
+      const etag = cachedViewTag();
+      if (etag) {
+        res.setHeader('ETag', etag);
+        res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
+        if (req.headers['if-none-match'] === etag) { res.statusCode = 304; return res.end(); }
+      }
+      return jsonText(res, cachedViewJson());
+    }
     if (url.pathname === '/api/efficiency' && req.method === 'GET') return json(res, efficiencySnapshot(index().efficiency?.foundation || {}, { period: url.searchParams.get('period') || '7d', remoteAnalytics: openRouter.state().cached }));
     if (url.pathname === '/api/openrouter' && req.method === 'GET') return json(res, openRouter.state());
     if (url.pathname === '/api/openrouter/connect' && req.method === 'POST') {
@@ -905,7 +930,7 @@ export function serve({ port = 4177 } = {}) {
     const actualPort = typeof address === 'object' && address ? address.port : port;
     const url = `http://127.0.0.1:${actualPort}`;
     localOrigin = url;
-    writeRuntime(paths.runtimeFile, { version: 1, pid: process.pid, script: path.resolve(process.argv[1]), startedAt: new Date().toISOString(), url, port: actualPort, instanceId, controlToken, dataDir });
+    writeRuntime(paths.runtimeFile, { version: 2, service: identity.service, build: { version: identity.version, commit: identity.commit }, pid: process.pid, script: path.resolve(process.argv[1]), startedAt: new Date().toISOString(), url, port: actualPort, instanceId, controlToken, dataDir });
     lifecycle({ stage: 'listening', message: `Loopback server listening on port ${actualPort}.`, durationMs: Date.now() - startedAt });
     console.log(`AI Development Dashboard → ${url}`);
     // All local scans, process sampling, watcher setup, and capacity reads are
@@ -992,7 +1017,7 @@ export async function main(args = process.argv.slice(2)) {
   if (command === 'scan') { const data = refresh(); console.log(`Indexed ${data.projects.length} projects, ${data.sessions.length} sessions, ${data.capabilities.length} capabilities.`); return 0; }
   if (command === 'serve') { serve({ port }); return 0; }
   if (command === 'start' || command === 'open') {
-    const status = await startService({ paths, script, port, lifecycleLog: (event) => appendLifecycleEvent(paths.lifecycleFile, event) });
+    const status = await startService({ paths, script, port, expectedBuild: dashboardIdentity(), lifecycleLog: (event) => appendLifecycleEvent(paths.lifecycleFile, event) });
     if (status.state !== 'running') {
       console.error(`AI Dashboard could not start.\n\nReason: ${status.error || 'Unable to start dashboard.'}\n\nTry:\n  ai-dashboard doctor\n  ai-dashboard report-bug`);
       return 1;
@@ -1001,21 +1026,24 @@ export async function main(args = process.argv.slice(2)) {
     console.log(status.runtime.url); return 0;
   }
   if (command === 'status') {
-    const status = await serviceStatus(paths, script, { probeLive: true });
-    if (args.includes('--json')) console.log(JSON.stringify(status, null, 2));
+    const status = await serviceStatus(paths, script, { probeLive: true, port, expectedBuild: dashboardIdentity() });
+    if (args.includes('--json')) {
+      const safeRuntime = status.runtime ? (({ controlToken, dataDir, script: runtimeScript, pid, instanceId, ...safe }) => safe)(status.runtime) : null;
+      console.log(JSON.stringify({ ...status, runtime: safeRuntime, portOwner: publicPortOwner(status.portOwner) }, null, 2));
+    }
     else {
-      const label = status.state === 'stopped' ? 'Stopped' : status.state === 'stale' ? 'Stale lifecycle state' : status.state === 'unhealthy' ? 'Unhealthy' : status.liveState === 'degraded' ? 'Degraded' : 'Healthy';
-      console.log(`${label}${status.runtime?.url ? ` ${status.runtime.url}` : ''}${status.reason ? `\n${status.reason}` : ''}`);
+      const label = status.state === 'stopped' ? 'Stopped' : status.state === 'stale' ? 'Stale lifecycle state' : status.state === 'stale-build' ? 'Stale dashboard build' : status.state === 'orphaned' ? 'Orphaned dashboard' : status.state === 'port-occupied' ? 'Port occupied' : status.state === 'port-unknown' ? 'Port ownership unknown' : status.state === 'unhealthy' ? 'Unhealthy' : status.liveState === 'degraded' ? 'Degraded' : 'Healthy';
+      console.log(`${label}${status.runtime?.url ? ` ${status.runtime.url}` : status.port ? ` 127.0.0.1:${status.port}` : ''}${status.reason ? `\n${status.reason}` : ''}`);
     }
     return ['unhealthy', 'stale', 'error'].includes(status.state) ? 1 : 0;
   }
   if (command === 'stop') {
-    const status = await stopService({ paths, script });
+    const status = await stopService({ paths, script, port, expectedBuild: dashboardIdentity(), lifecycleLog: (event) => appendLifecycleEvent(paths.lifecycleFile, event) });
     console.log(status.message || (status.state === 'stopped' ? 'AI Dashboard stopped.' : status.error || 'AI Dashboard did not stop cleanly.'));
     return status.state === 'error' ? 1 : 0;
   }
   if (command === 'doctor') {
-    const result = await doctorAsync(paths, script);
+    const result = await doctorAsync(paths, script, { port, expectedBuild: dashboardIdentity() });
     if (args.includes('--json')) console.log(JSON.stringify(result, null, 2));
     else {
       console.log(`CLI: ${result.checks.find((check) => check.id === 'local-only')?.ok ? 'ok' : 'needs attention'}`);
@@ -1024,13 +1052,17 @@ export async function main(args = process.argv.slice(2)) {
       console.log(`Live state: ${result.liveState?.state || 'unavailable'}`);
       console.log(`Index: ${result.index?.state || 'unknown'}`);
       console.log(`Discovery: ${result.discovery?.state || 'unknown'}`);
+      if (result.port) {
+        const portLabel = result.port.state === 'free' ? 'free' : result.port.state === 'dashboard' ? 'owned dashboard' : result.port.state === 'orphaned-dashboard' ? 'orphaned dashboard' : result.port.state === 'occupied-by-other' ? 'occupied by another application' : result.port.state === 'occupied-unknown' ? 'occupied by an unrecognized process' : result.port.state === 'inspection-unavailable' ? 'ownership inspection unavailable' : 'unknown';
+        console.log(`Port ${result.port.port}: ${portLabel}`);
+      }
       if (result.recommendation) console.log(`Recommendation: ${result.recommendation}`);
     }
     return result.ok ? 0 : 1;
   }
   if (command === 'setup') {
     fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
-    const status = await startService({ paths, script, port, lifecycleLog: (event) => appendLifecycleEvent(paths.lifecycleFile, event) });
+    const status = await startService({ paths, script, port, expectedBuild: dashboardIdentity(), lifecycleLog: (event) => appendLifecycleEvent(paths.lifecycleFile, event) });
     if (status.state !== 'running') { console.error(`AI Dashboard could not start.\n\nReason: ${status.error || 'Unable to start dashboard setup.'}\n\nTry:\n  ai-dashboard doctor\n  ai-dashboard report-bug`); return 1; }
     if (!args.includes('--no-open')) await openBrowser(status.runtime.url);
     console.log(`Dashboard setup is ready at ${status.runtime.url}`); return 0;
@@ -1040,7 +1072,7 @@ export async function main(args = process.argv.slice(2)) {
     // This is an explicit dashboard-software update command. It is never used
     // during startup/discovery and it never updates agents, models, skills, or
     // connected services.
-    const before = await serviceStatus(paths, script);
+    const before = await serviceStatus(paths, script, { port, expectedBuild: dashboardIdentity() });
     const result = updateGitCheckout(installMode({ script }));
     if (!['current', 'updated'].includes(result.state)) { console.error(result.message || 'Dashboard update was not performed.'); return 1; }
     if (result.state === 'current') { console.log(`Already up to date. ${result.head || ''}`.trim()); return 0; }
@@ -1052,9 +1084,9 @@ export async function main(args = process.argv.slice(2)) {
       }
     }
     if (before.state === 'running') {
-      const stopped = await stopService({ paths, script });
+      const stopped = await stopService({ paths, script, port, expectedBuild: dashboardIdentity() });
       if (stopped.state !== 'stopped') { console.error('Dashboard updated, but the owned service could not be stopped cleanly.'); return 1; }
-      const restarted = await startService({ paths, script, port });
+      const restarted = await startService({ paths, script, port, expectedBuild: dashboardIdentity() });
       if (restarted.state !== 'running') { console.error('Dashboard updated, but the owned service did not restart cleanly.'); return 1; }
       console.log(`Updated successfully. Dashboard restarted. ${restarted.runtime.url}`); return 0;
     }

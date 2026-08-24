@@ -25,7 +25,8 @@ import { buildComparableCohorts, COHORT_CLASSES, comparisonMetrics, eligibilityR
 import { readPlanCapacity } from '../src/capacity.js';
 import { createRediscoveryScheduler } from '../src/rediscovery.js';
 import { installMode, inspectGitUpdate, updateGitCheckout } from '../src/lifecycle/update.js';
-import { portOccupied, startService } from '../src/lifecycle/service.js';
+import { portOccupied, serviceStatus, startService, stopService } from '../src/lifecycle/service.js';
+import { inspectPortOwner, parsePortListeners, portOwnerSummary, publicPortOwner } from '../src/lifecycle/port-owner.js';
 import { appendLifecycleEvent, readLifecycleEvents } from '../src/lifecycle/log.js';
 import { mergeObservedIdentities, observedIdentityRegistry } from '../src/runtime-registry.js';
 import { ACCENT_PRESETS, DEFAULT_ACCENT, accentTheme, applyAccent, normalizeAccentColor, rememberAccent, storedAccent } from '../public/theme.js';
@@ -568,6 +569,98 @@ test('lifecycle startup timeout terminates the detached child it spawned', async
   assert.equal(result.reasonCode, 'health-timeout');
   assert.equal(killed, 'SIGTERM');
   assert.equal(readRuntime(paths.runtimeFile), null);
+});
+
+test('port inspection parses listeners and verifies dashboard identity without trusting a PID alone', async () => {
+  const lsof = 'p48123\ncnode\nu501\nf15\n';
+  assert.deepEqual(parsePortListeners(lsof), [{ pid: 48123, command: 'node', userId: '501', fd: '15' }]);
+  const owner = await inspectPortOwner(4177, {
+    script: '/checkout/bin/ai-dashboard',
+    root: '/checkout',
+    dataDir: '/checkout/.dashboard-data',
+    expectedBuild: { commit: 'current' },
+    listeners: [{ pid: 48123, command: 'node', userId: '501', fd: '15' }],
+    runner(command) {
+      if (command === 'ps') return '/usr/local/bin/node /checkout/bin/ai-dashboard serve --port 4177\n';
+      return 'p48123\nfcwd\nn/checkout\nftxt\nn/usr/local/bin/node\n';
+    },
+    health: async () => ({ state: 'healthy', status: 200, body: { state: 'ok', service: 'ai-development-dashboard', build: { commit: 'old' } } })
+  });
+  assert.equal(owner.classification, 'dashboard');
+  assert.equal(owner.verified, true);
+  assert.equal(owner.staleBuild, true);
+  assert.equal(portOwnerSummary(owner).state, 'orphaned-dashboard');
+  const unrelated = await inspectPortOwner(4177, {
+    listeners: [{ pid: 48124, command: 'node', userId: '501', fd: '16' }],
+    runner(command) { if (command === 'ps') return '/tmp/doodoo/server.js\n'; return 'p48124\nfcwd\nn/tmp/doodoo\nftxt\nn/usr/local/bin/node\n'; },
+    health: async () => ({ state: 'healthy', status: 200, body: { state: 'ok', service: 'doodoo' } })
+  });
+  assert.equal(unrelated.classification, 'unrelated');
+  assert.equal(unrelated.verified, false);
+  const publicOwner = publicPortOwner({ ...owner, port: 4177 });
+  assert.deepEqual(publicOwner, {
+    port: 4177,
+    state: 'orphaned-dashboard',
+    occupied: true,
+    classification: 'dashboard',
+    verified: true,
+    staleBuild: true,
+    health: 'healthy'
+  });
+  assert.equal(JSON.stringify(publicOwner).includes('48123'), false);
+  assert.equal(JSON.stringify(publicOwner).includes('/checkout'), false);
+});
+
+test('missing lifecycle state distinguishes orphaned dashboard from unrelated port occupant', async () => {
+  const folder = temp('orphan-status');
+  const paths = { root: '/checkout', dataDir: folder, runtimeFile: path.join(folder, 'runtime.json'), logFile: path.join(folder, 'runtime.log'), lifecycleFile: path.join(folder, 'lifecycle.jsonl') };
+  const orphan = { port: 4177, occupied: true, classification: 'dashboard', verified: true, staleBuild: true, listener: { pid: 48123 }, health: { state: 'healthy' } };
+  const status = await serviceStatus(paths, '/checkout/bin/ai-dashboard', { port: 4177, portInspector: async () => orphan });
+  assert.equal(status.state, 'orphaned');
+  assert.match(status.reason, /orphaned|stale/i);
+  const other = await serviceStatus(paths, '/checkout/bin/ai-dashboard', { port: 4177, portInspector: async () => ({ port: 4177, occupied: true, classification: 'unrelated', verified: false }) });
+  assert.equal(other.state, 'port-occupied');
+  assert.match(other.reason, /another application/i);
+});
+
+test('transient port inspection uncertainty is not reported as an occupied listener', async () => {
+  const folder = temp('port-unknown');
+  const paths = { root: '/checkout', dataDir: folder, runtimeFile: path.join(folder, 'runtime.json'), logFile: path.join(folder, 'runtime.log'), lifecycleFile: path.join(folder, 'lifecycle.jsonl') };
+  const uncertain = { port: 4177, occupied: null, classification: 'unknown', inspectionAvailable: false };
+  const status = await serviceStatus(paths, '/checkout/bin/ai-dashboard', { port: 4177, portInspector: async () => uncertain });
+  assert.equal(status.state, 'port-unknown');
+  assert.match(status.reason, /could not be inspected/i);
+  assert.deepEqual(publicPortOwner(uncertain), {
+    port: 4177,
+    state: 'inspection-unavailable',
+    occupied: null,
+    classification: 'unknown',
+    verified: false,
+    staleBuild: false,
+    health: null
+  });
+  let signaled = 0;
+  const stopped = await stopService({ paths, script: '/checkout/bin/ai-dashboard', portInspector: async () => uncertain, kill: () => { signaled += 1; } });
+  assert.equal(stopped.state, 'stopped');
+  assert.equal(signaled, 0);
+  assert.match(stopped.message, /No process was stopped/i);
+  assert.equal(publicPortOwner(null), null);
+});
+
+test('stop recovers only a verified orphan and never signals an unrelated listener', async () => {
+  const orphanFolder = temp('orphan-stop');
+  const orphanPaths = { root: '/checkout', dataDir: orphanFolder, runtimeFile: path.join(orphanFolder, 'runtime.json'), logFile: path.join(orphanFolder, 'runtime.log'), lifecycleFile: path.join(orphanFolder, 'lifecycle.jsonl') };
+  let signaled = 0;
+  const stopped = await stopService({ paths: orphanPaths, script: '/checkout/bin/ai-dashboard', portInspector: async () => ({ port: 4177, occupied: true, classification: 'dashboard', verified: true, listener: { pid: 48123 }, health: { state: 'healthy' } }), kill: () => { signaled += 1; }, alive: () => false, sleep: async () => {} });
+  assert.equal(stopped.state, 'stopped');
+  assert.equal(signaled, 1);
+  const otherFolder = temp('other-stop');
+  const otherPaths = { root: '/checkout', dataDir: otherFolder, runtimeFile: path.join(otherFolder, 'runtime.json'), logFile: path.join(otherFolder, 'runtime.log'), lifecycleFile: path.join(otherFolder, 'lifecycle.jsonl') };
+  signaled = 0;
+  const untouched = await stopService({ paths: otherPaths, script: '/checkout/bin/ai-dashboard', portInspector: async () => ({ port: 4177, occupied: true, classification: 'unrelated', verified: false }), kill: () => { signaled += 1; }, alive: () => true, sleep: async () => {} });
+  assert.equal(untouched.state, 'stopped');
+  assert.equal(signaled, 0);
+  assert.match(untouched.message, /No process was stopped/);
 });
 
 test('lifecycle event log is bounded and stores only sanitized stage metadata', () => {

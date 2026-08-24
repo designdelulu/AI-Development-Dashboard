@@ -68,6 +68,9 @@ export function buildDiagnostics(input = {}) {
     lifecycle: {
       state: text(lifecycle.state, 40) || 'unknown',
       port: integer(lifecycle.port),
+      portOccupied: boolean(lifecycle.portOccupied),
+      portOwner: text(lifecycle.portOwner, 40) || null,
+      healthState: text(lifecycle.healthState, 40) || null,
       startupStage: text(lifecycle.startupStage, 80) || null,
       startupDurationMs: integer(lifecycle.startupDurationMs)
     },

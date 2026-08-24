@@ -12,7 +12,7 @@ test('bug diagnostics are allowlisted and exclude secrets, content, notes, and a
   const diagnostics = buildDiagnostics({
     version: '0.1.0',
     commit: 'abc1234',
-    lifecycle: { state: 'error', port: 4177, startupStage: 'health-check' },
+    lifecycle: { state: 'error', port: 4177, portOccupied: true, portOwner: 'occupied-unknown', healthState: 'unavailable', startupStage: 'health-check' },
     counts: { projects: 2, sessions: 4 },
     permissions: { localRead: true, networkConnected: false },
     secret: 'sk-obvious-fake-secret',
@@ -25,6 +25,9 @@ test('bug diagnostics are allowlisted and exclude secrets, content, notes, and a
   assert.equal(text.includes('Never include this prompt body'), false);
   assert.equal(text.includes('/Users/ericbarker/Private/Project'), false);
   assert.equal(diagnostics.lifecycle.port, 4177);
+  assert.equal(diagnostics.lifecycle.portOccupied, true);
+  assert.equal(diagnostics.lifecycle.portOwner, 'occupied-unknown');
+  assert.equal(diagnostics.lifecycle.healthState, 'unavailable');
   assert.equal(diagnostics.adapters[0].id, 'Claude');
 });
 
