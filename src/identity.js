@@ -89,16 +89,27 @@ export function inferAgentFromModel(model, fallbackAgent) {
   return fallbackAgent;
 }
 
-export function sessionIdentity({ agent, host, provider = null, gateway = null, account = null, model, role = null, harness = 'standalone', inferAgent = true } = {}) {
+export function localInferenceEngine(value) {
+  const id = String(value || '').trim().toLowerCase();
+  if (/\bollama\b/.test(id)) return 'Ollama';
+  if (/\blm\s*studio\b|\blmstudio\b/.test(id)) return 'LM Studio';
+  return null;
+}
+
+export function sessionIdentity({ agent, host, provider = null, gateway = null, engine = null, locality = null, account = null, model, role = null, harness = 'standalone', inferAgent = true } = {}) {
   const inferred = inferProvider(model, { agent });
   const resolvedAgent = inferAgent ? inferAgentFromModel(model, agent) : (agent || null);
+  const localEngine = locality === 'Local' ? (engine || localInferenceEngine(gateway) || localInferenceEngine(provider)) : (localInferenceEngine(engine) || localInferenceEngine(gateway) || localInferenceEngine(provider));
+  const explicitProviderIsEngine = localEngine && localInferenceEngine(provider) === localEngine;
   return {
     agent: resolvedAgent,
     host: host || agent || null,
-    gateway: gateway || null,
+    gateway: localEngine ? null : (gateway || null),
+    engine: localEngine || null,
+    locality: localEngine ? 'Local' : 'Remote',
     account: account || null,
-    provider: provider || inferred.provider,
-    providerConfidence: provider ? 'Observed from source' : inferred.confidence,
+    provider: explicitProviderIsEngine ? inferred.provider : (provider || inferred.provider),
+    providerConfidence: explicitProviderIsEngine ? inferred.confidence : (provider ? 'Observed from source' : inferred.confidence),
     model: model || null,
     modelRaw: model || null,
     modelId: normalizeModelId(model),

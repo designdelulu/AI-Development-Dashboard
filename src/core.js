@@ -22,6 +22,7 @@ import * as inventoryAdapter from './adapters/inventory.js';
 import * as openRouterAdapter from './adapters/openrouter.js';
 import * as antigravityAdapter from './adapters/antigravity.js';
 import * as clineAdapter from './adapters/cline.js';
+import * as localInferenceAdapter from './adapters/local-inference.js';
 import { applyHistoricalObservation, discoverClosedTools } from './discovery.js';
 import { normalizePermissions } from './permissions.js';
 import { buildEfficiencyFoundation, structuralEventsFromRecord } from './efficiency.js';
@@ -255,7 +256,7 @@ export function derive(index) {
   return { ...result, maintenance: maintenanceGroups(capabilities), achievements: achievementsFor(result) };
 }
 export function defaultAdapterRegistry() {
-  return new AdapterRegistry().register(claudeAdapter).register(codexAdapter).register(cursorAdapter).register(inventoryAdapter).register(openRouterAdapter).register(antigravityAdapter).register(clineAdapter);
+  return new AdapterRegistry().register(claudeAdapter).register(codexAdapter).register(cursorAdapter).register(inventoryAdapter).register(openRouterAdapter).register(antigravityAdapter).register(clineAdapter).register(localInferenceAdapter);
 }
 
 export function scan(sources, previous=null, { registry = defaultAdapterRegistry(), now = new Date(), homedir = home } = {}) {
@@ -278,6 +279,7 @@ export function scan(sources, previous=null, { registry = defaultAdapterRegistry
   const antigravityState=discoveries.find((row)=>row.id==='antigravity')?.value || closedDiscovery.Antigravity;
   const sourceStates=permissions.localRead ? { ...closedDiscovery } : {};
   for (const row of discoveries) {
+    if (row.id==='local-inference') continue;
     const sourceKey=row.manifest.runtime?.sourceKey||row.manifest.displayName||row.id;
     const historicalValue=byId[row.id];
     const records=[...(historicalValue?.sessions||[]),...(row.id==='cursor'?cursorTokens.sessions:[])];
@@ -288,6 +290,8 @@ export function scan(sources, previous=null, { registry = defaultAdapterRegistry
   }
   if (antigravityState) sourceStates.Antigravity=antigravityState;
   if (openRouterState) sourceStates.OpenRouter=openRouterState;
+  const localInferenceState=discoveries.find((row)=>row.id==='local-inference')?.value;
+  if (localInferenceState) Object.assign(sourceStates,localInferenceState);
   const adapterHealth=discoveries.map((row)=>({ id:row.id, adapterVersion:row.manifest.adapterVersion, capabilities:row.manifest.capabilities, state:row.error?'error':'available', error:row.error||null }));
   return derive({schemaVersion:SCHEMA_VERSION,metricVersion:METRIC_VERSION,sources,repositories,sessions,rawCapabilities,capabilityUsageEvents:newEvents,harnessRuns:[],editorHosts:permissions.localRead?[discoverVsCodeAI(homedir)]:[],sourceStates,adapterHealth,adapterManifests:registry.manifests(),observedIdentities:observedIdentityRegistry(sessions,previous?.observedIdentities||[],{now}),tokenVisualScale:previous?.tokenVisualScale||null,permissions,errors:historical.filter((row)=>row.error).map((row)=>row.error),diagnostics:{...claude.diagnostics,...codex.diagnostics,...cursor.diagnostics,...cline.diagnostics,...cursorTokens.diagnostics,durationMs:Date.now()-began}});
 }

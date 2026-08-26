@@ -26,6 +26,7 @@ import { serviceStatus, startService, stopService } from './lifecycle/service.js
 import { createRediscoveryScheduler } from './rediscovery.js';
 import { installMode, updateGitCheckout } from './lifecycle/update.js';
 import { mergeObservedIdentities, runtimeCatalogForLiveEvidence } from './runtime-registry.js';
+import { localInferenceServices } from './local-inference.js';
 import { createPresenceSampler, PRESENCE_POLL_MS, processSnapshotFromOutput } from './runtime-presence.js';
 import { validateProjectRoots } from './onboarding.js';
 import { createOpenRouterService } from './openrouter/service.js';
@@ -716,7 +717,7 @@ export function serve({ port = 4177 } = {}) {
           error: serverFailed ? 'The local dashboard server reported an error; run ai-dashboard doctor.' : null
         }
       });
-      const services = buildRuntimeServices({ runtimes: live.runtimeCatalog?.liveRuntimes || current.runtimeCatalog?.liveRuntimes || [], presence: live.presence || {}, liveStates: live.operator?.liveStates || {} });
+      const services = [...buildRuntimeServices({ runtimes: live.runtimeCatalog?.liveRuntimes || current.runtimeCatalog?.liveRuntimes || [], presence: live.presence || {}, liveStates: live.operator?.liveStates || {} }), ...localInferenceServices(current.sourceStates || {})];
       const diagnostics = { discovery: rediscovery.state(), scan: scanRunning ? 'running' : 'idle' };
       return json(res, runtimeStatusSnapshot({ dashboard, services, resources: latestSystem, discovery: diagnostics }));
     }

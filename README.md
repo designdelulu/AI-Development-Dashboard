@@ -93,6 +93,8 @@ Installation, historical use, active work, and connected status remain separate.
 | Codex CLI | Supported | Supported local session activity | Supported where local fields exist | Native local plan windows where exposed | Host and model remain separate. |
 | Cursor | Supported | Supported structural agent-tool/transcript growth | Exact, Estimated, Mixed, or Unavailable local evidence | Capacity unavailable locally | Official Usage action remains available when Cursor is closed. App startup, editor storage, and WAL housekeeping are not AI activity; no browser/account scraping. |
 | Cline | Feature-probed local/extension discovery, including Cline inside Cursor | Structured Cline session lifecycle when exposed | Exact local fields where session artifacts expose them; model IDs are dynamic | No Cline capacity source; OpenRouter account capacity remains separate | In Cursor, `Cline` is the agent and `Cursor` is the host. Provider, gateway, model, host, and project remain separate; extension/app presence alone is never AI activity. |
+| Ollama | Optional local adapter; documented loopback API only | Loaded-model state when `/api/ps` exposes it; no active-generation claim | Installed models, loaded model, size/quantization/context where exposed; API tokens unavailable | Local / no provider billing; no hardware-cost claim | The dashboard never changes Ollama configuration and never scans ports. |
+| LM Studio | Optional local adapter when the `lms` CLI and documented loopback API are available | Loaded-model state when the API reports it; no active-generation claim | Installed/loaded model metadata, including quantization/context when exposed; API tokens unavailable | Local / no provider billing; no hardware-cost claim | The fixed documented local API is feature-probed; no generic OpenAI-compatible endpoint discovery. |
 | Antigravity | Closed-app/CLI/root detection | Unavailable without validated work evidence | Optional documented local status-line snapshot | Optional quota bucket snapshot | Presence is not history or live work. |
 | OpenRouter | Explicit Connected Service | Not a live agent | Provider-reported aggregate usage/models | Exact reported cost/credits where exposed | Disabled by default; project attribution stays Unknown without deterministic linkage. |
 | Git | Project discovery | — | Descriptive repository activity | — | Not a productivity score. |
@@ -105,6 +107,17 @@ OpenRouter is a connected **gateway/account telemetry source**, not a Live Agent
 ### Cline inside Cursor through OpenRouter (optional local agent)
 
 Cline can run as an extension inside Cursor. In that configuration the normalized path is `Cline (agent) → Cursor (host) → OpenRouter (gateway) → underlying provider → exact model`, for example `Cline → Cursor → OpenRouter → Moonshot → Kimi`. Cline is not the only possible OpenRouter host: Claude Code, Codex, and future supported hosts may use the same gateway independently. The adapter discovers the real Cursor extension without requiring vanilla VS Code or a Cline CLI. Cline's inference key stays inside Cline and is never read or copied by the dashboard. The dashboard's separate `OPENROUTER_MANAGEMENT_KEY` is only for optional account analytics. A configured Cline model is not historical usage until a session artifact records observed work; remote OpenRouter rows remain host/project Unknown unless a deterministic correlation identifier is available.
+
+### Local models (optional)
+
+Local inference support is adapter-based, currently feature-probing **Ollama** and **LM Studio** through their documented local interfaces only. It does not add dependencies, change runtime configuration, scan localhost ports, or transmit model inventory/state anywhere.
+
+- **Installed** means the runtime returned a local model inventory. It is not usage history.
+- **Loaded** means the runtime currently reports the model in memory.
+- **Observed** means a supported agent session explicitly recorded work with that model; an installed or loaded model is never promoted to Observed automatically.
+- **Active** is Unavailable today: these adapters do not claim that a loaded model is generating.
+
+When an agent session provides route evidence, the identity is explicit—for example `Cline → Cursor → Ollama → qwen3:14b` is shown as **Local · Ollama**, with no OpenRouter gateway. Remote rows remain explicitly remote. Ollama may expose an exact runtime-reported model allocation (`size_vram`); this is displayed as model allocation only. Apple Silicon unified memory is never called VRAM, and per-model resource use remains Unavailable when the runtime does not expose it. Local API cost is shown as `Local / no provider billing`, not as free inference; power and hardware cost are outside the dashboard’s current scope.
 
 ### Antigravity (local foundation)
 

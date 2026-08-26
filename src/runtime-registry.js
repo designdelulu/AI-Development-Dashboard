@@ -101,11 +101,13 @@ export function observedIdentityRegistry(sessions = [], previous = [], { now = n
     if (!session?.modelId && !session?.modelRaw) continue;
     const modelId = session.modelId || String(session.modelRaw).toLowerCase();
     const gateway = session.gateway || null;
-    const key = [gateway || 'direct', session.provider || 'Unknown', modelId, session.host || 'Unknown', session.harness || 'standalone'].join('|');
+    const key = [session.locality || 'Remote', session.engine || gateway || 'direct', session.provider || 'Unknown', modelId, session.host || 'Unknown', session.harness || 'standalone'].join('|');
     const existing = prior.get(key);
     prior.set(key, {
       key,
       gateway,
+      engine: session.engine || null,
+      locality: session.locality || 'Remote',
       provider: session.provider || 'Unknown',
       model: session.model || session.modelRaw || 'Unknown',
       modelRaw: session.modelRaw || session.model || null,

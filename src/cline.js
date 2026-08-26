@@ -211,7 +211,8 @@ function modelAndRoute(value) {
   const isOpenRouter = /openrouter/i.test(String(rawProvider || '')) || /openrouter/i.test(String(firstString(value, ['route', 'providerName', 'provider_name']) || ''));
   const inferred = inferProvider(model, { agent: 'Cline' });
   const provider = explicitUnderlying || (isOpenRouter ? (inferred.provider === 'Unknown' ? null : inferred.provider) : (rawProvider || (inferred.provider === 'Unknown' ? null : inferred.provider)));
-  return { model, provider: provider ? title(provider) : null, gateway: isOpenRouter ? 'OpenRouter' : (rawProvider && !/openrouter/i.test(rawProvider) ? title(rawProvider) : null), gatewayConfigured: Boolean(isOpenRouter), modelConfigured: model };
+  const engine = /\bollama\b/i.test(String(rawProvider || '')) ? 'Ollama' : /\blm\s*studio\b|\blmstudio\b/i.test(String(rawProvider || '')) ? 'LM Studio' : null;
+  return { model, provider: provider ? title(provider) : null, gateway: isOpenRouter ? 'OpenRouter' : (engine ? null : (rawProvider ? title(rawProvider) : null)), engine, locality: engine ? 'Local' : 'Remote', gatewayConfigured: Boolean(isOpenRouter), modelConfigured: model };
 }
 
 function unsupportedSchema(value) {
@@ -414,7 +415,7 @@ function normalizedSession(file, parsed, projects) {
   const record = parsed.record;
   if (!record) return null;
   const project = projectFor(projects, record.cwd);
-  const identity = sessionIdentity({ agent: 'Cline', host: record.host, provider: record.route.provider, gateway: record.route.gateway, model: record.route.model, inferAgent: false });
+  const identity = sessionIdentity({ agent: 'Cline', host: record.host, provider: record.route.provider, gateway: record.route.gateway, engine: record.route.engine, locality: record.route.locality, model: record.route.model, inferAgent: false });
   const days = aggregateTokenDays(dedupeUsageEvents(parsed.usage || []));
   const tokens = tokensFromDays(days);
   return {

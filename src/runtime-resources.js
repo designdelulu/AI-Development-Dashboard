@@ -217,6 +217,10 @@ export function normalizeRuntimeService(value = {}) {
     cpuPercent: finite(value.cpuPercent),
     memoryBytes: nonNegative(value.memoryBytes, null),
     gpu: value.gpu || null,
+    model: value.model || null,
+    modelMemoryBytes: nonNegative(value.modelMemoryBytes, null),
+    modelMemoryEvidence: value.modelMemoryEvidence || 'Unavailable',
+    telemetry: value.telemetry || null,
     controls: {
       stop: Boolean(value.controls?.stop),
       restart: Boolean(value.controls?.restart),
