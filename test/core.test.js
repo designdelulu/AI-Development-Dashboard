@@ -356,7 +356,7 @@ test('model provider and host stay separate and roles are never invented',()=>{
   assert.equal(emptyHarnessRun().workers.length,0);
   const source=fs.readFileSync(path.join(process.cwd(),'public','app.js'),'utf8');
   assert.match(source,/<dt>Host<\/dt>/);
-  assert.match(source,/<dt>Provider<\/dt>/);
+  assert.match(source,/<dt>Route<\/dt>/);
   assert.match(source,/<dt>Role<\/dt>/);
   assert.match(source,/Not recorded/);
 });
