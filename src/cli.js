@@ -11,6 +11,7 @@ import { claudeLiveDecision, cursorLiveDecision, isCursorTranscriptPath, isLiveA
 import { structuredAttentionFromFile } from './live-attention.js';
 import { clineSnapshotBootstrapEligible, ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
 import { CLINE_DB_LIVE_MAX_AGE_MS, clineDbActiveEligible, clineHostForInstallation, clineHostForPath, clineInstallation, clineLiveDecision, readClineSessionDbMetadata, readClineSessionMetadata } from './cline.js';
+import { hermesInstallation, hermesLiveCompletions, readHermesLiveAsync } from './hermes.js';
 import { loadSettings, saveSettings } from './config.js';
 import { releaseInfo } from './release.js';
 import { tokenReportFromCalendar } from './tokens.js';
@@ -56,6 +57,7 @@ const claudeToolTracker = new ClaudeToolTracker();
 const cursorTurnTracker = new CursorTurnTracker();
 const clineSessionTracker = new ClineSessionTracker();
 let liveClineInstallation = null, liveClineInstallationAt = 0, clineDbPollInFlight = false, clineDbPollTimer = null;
+let liveHermesInstallation = null, liveHermesInstallationAt = 0, hermesLivePollInFlight = false, hermesLivePollTimer = null, hermesLiveTurns = [];
 
 function projectMetadata() { try { return JSON.parse(fs.readFileSync(projectMetaFile, 'utf8')); } catch { return { version: 1, projects: {} }; } }
 function saveProjectMetadata(metadata) { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(projectMetaFile, JSON.stringify(metadata, null, 2)); }
@@ -81,6 +83,13 @@ function clineInstallationForLive() {
     liveClineInstallationAt = Date.now();
   }
   return liveClineInstallation;
+}
+function hermesInstallationForLive() {
+  if (!liveHermesInstallation || Date.now() - liveHermesInstallationAt > 60_000) {
+    liveHermesInstallation = hermesInstallation({ homeDir: process.env.HOME, env: process.env });
+    liveHermesInstallationAt = Date.now();
+  }
+  return liveHermesInstallation;
 }
 function antigravityCliPresent() { return Boolean(index().sourceStates?.Antigravity?.installed?.evidence?.includes('binary')); }
 function readStoredIndex() {
@@ -462,6 +471,24 @@ async function pollClineSessionDatabase() {
   }
 }
 
+// Hermes's durable per-turn lease is current lifecycle evidence. It is
+// deliberately stronger than an open Desktop/CLI session or a recent file mtime.
+async function pollHermesLiveState() {
+  if (hermesLivePollInFlight) return;
+  hermesLivePollInFlight = true;
+  try {
+    const now = Date.now(), next = await readHermesLiveAsync({ installation: hermesInstallationForLive(), now, timeoutMs: 900 });
+    for (const event of hermesLiveCompletions(hermesLiveTurns, next, now)) {
+      const signal = sessionFileSignal({ ...event, previousSize: 0, size: 0 });
+      if (signal) liveActivityEvents.push(signal);
+    }
+    const cutoff = now - 60_000;
+    while (liveActivityEvents[0] && new Date(liveActivityEvents[0].timestamp).getTime() < cutoff) liveActivityEvents.shift();
+    hermesLiveTurns = next;
+  }
+  finally { hermesLivePollInFlight = false; }
+}
+
 function sourceWatchList(sources) {
   const list = [];
   const watchKeys = new Set(['claudeRoot', 'codexRoot', 'cursorRoot', 'cursorStorageRoot', 'clineSessionsRoot', 'antigravityRoot', 'antigravityCliRoot']);
@@ -548,14 +575,17 @@ function liveState() {
   const claudeInProgress = claudeToolTracker.signal();
   const cursorInProgress = cursorTurnTracker.signal();
   const clineInProgress = clineSessionTracker.signal();
+  const activeHermesTurns = hermesLiveTurns.filter((turn) => new Date(turn.leaseUntil).getTime() > Date.now());
+  const hermesInProgress = activeHermesTurns.length ? { active: true, since: activeHermesTurns.map((turn) => turn.since).filter(Boolean).sort()[0] || new Date().toISOString(), source: 'hermes-durable-turn-lease', confidence: 'Structured', reason: 'Hermes holds a current durable turn lease.', model: activeHermesTurns[0].model || null, provider: activeHermesTurns[0].provider || null, gateway: activeHermesTurns[0].gateway || null, host: activeHermesTurns[0].host || 'Hermes Agent' } : null;
   const liveAgents = [...new Set([
     ...liveActivityEvents.map((event) => event.agent).filter(Boolean),
     ...(claudeInProgress ? ['Claude'] : []),
     ...(cursorInProgress ? ['Cursor'] : []),
-    ...(clineInProgress ? ['Cline'] : [])
+    ...(clineInProgress ? ['Cline'] : []),
+    ...(hermesInProgress ? ['Hermes Agent'] : [])
   ])];
   const manifests = current.adapterManifests?.length ? current.adapterManifests : defaultAdapterRegistry().manifests();
-  const liveCatalog = runtimeCatalogForLiveEvidence(current.runtimeCatalog || {}, manifests, liveAgents, { Cline: clineHostForInstallation(clineInstallationForLive()) || 'Cursor' }, { Cline: clineInProgress || {} });
+  const liveCatalog = runtimeCatalogForLiveEvidence(current.runtimeCatalog || {}, manifests, liveAgents, { Cline: clineHostForInstallation(clineInstallationForLive()) || 'Cursor', 'Hermes Agent': hermesInProgress?.host || 'Hermes Agent' }, { Cline: clineInProgress || {}, 'Hermes Agent': hermesInProgress || {} });
   const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity, runtimeCatalog: liveCatalog });
   // Presence sampling should use the same live catalog sent to the browser.
   // A validated signal can precede the asynchronous historical scan; keeping
@@ -575,9 +605,10 @@ function liveState() {
       if (agent === 'Claude') claudeToolTracker.clear();
       if (agent === 'Cursor') cursorTurnTracker.clear();
       if (agent === 'Cline') clineSessionTracker.clear();
+      if (agent === 'Hermes Agent') hermesLiveTurns = [];
     }
   }
-  snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(current, liveCatalog), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: { ...(claudeInProgress ? { Claude: claudeInProgress } : {}), ...(cursorInProgress ? { Cursor: cursorInProgress } : {}), ...(clineInProgress ? { Cline: clineInProgress } : {}) }, presenceStates });
+  snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(current, liveCatalog), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: { ...(claudeInProgress ? { Claude: claudeInProgress } : {}), ...(cursorInProgress ? { Cursor: cursorInProgress } : {}), ...(clineInProgress ? { Cline: clineInProgress } : {}), ...(hermesInProgress ? { 'Hermes Agent': hermesInProgress } : {}) }, presenceStates });
   snapshot.presence = presenceStates;
   snapshot.agents = detectAgents();
   return snapshot;
@@ -933,6 +964,7 @@ export function serve({ port = 4177 } = {}) {
     if (capacityProcess && capacityProcess.exitCode == null) { try { capacityProcess.kill('SIGTERM'); } catch {} capacityProcess = null; }
     if (presencePollTimer) { clearInterval(presencePollTimer); presencePollTimer = null; }
     if (clineDbPollTimer) { clearInterval(clineDbPollTimer); clineDbPollTimer = null; }
+    if (hermesLivePollTimer) { clearInterval(hermesLivePollTimer); hermesLivePollTimer = null; }
     if (backgroundScan && backgroundScan.exitCode == null) { try { backgroundScan.kill('SIGTERM'); } catch {} }
     backgroundScan = null;
   };
@@ -1005,6 +1037,9 @@ export function serve({ port = 4177 } = {}) {
       pollClineSessionDatabase().catch(() => {});
       clineDbPollTimer = setInterval(() => { pollClineSessionDatabase().catch(() => {}); }, 2_000);
       clineDbPollTimer.unref?.();
+      pollHermesLiveState().catch(() => {});
+      hermesLivePollTimer = setInterval(() => { pollHermesLiveState().catch(() => {}); }, 2_000);
+      hermesLivePollTimer.unref?.();
       // Capacity is deliberately delayed; it is a lower-frequency panel and
       // some sources walk large local histories. Never make startup health
       // wait for it.

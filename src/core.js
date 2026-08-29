@@ -22,6 +22,7 @@ import * as inventoryAdapter from './adapters/inventory.js';
 import * as openRouterAdapter from './adapters/openrouter.js';
 import * as antigravityAdapter from './adapters/antigravity.js';
 import * as clineAdapter from './adapters/cline.js';
+import * as hermesAdapter from './adapters/hermes.js';
 import * as localInferenceAdapter from './adapters/local-inference.js';
 import { applyHistoricalObservation, discoverClosedTools } from './discovery.js';
 import { normalizePermissions } from './permissions.js';
@@ -256,7 +257,7 @@ export function derive(index) {
   return { ...result, maintenance: maintenanceGroups(capabilities), achievements: achievementsFor(result) };
 }
 export function defaultAdapterRegistry() {
-  return new AdapterRegistry().register(claudeAdapter).register(codexAdapter).register(cursorAdapter).register(inventoryAdapter).register(openRouterAdapter).register(antigravityAdapter).register(clineAdapter).register(localInferenceAdapter);
+  return new AdapterRegistry().register(claudeAdapter).register(codexAdapter).register(cursorAdapter).register(inventoryAdapter).register(openRouterAdapter).register(antigravityAdapter).register(clineAdapter).register(hermesAdapter).register(localInferenceAdapter);
 }
 
 export function scan(sources, previous=null, { registry = defaultAdapterRegistry(), now = new Date(), homedir = home } = {}) {
@@ -267,7 +268,7 @@ export function scan(sources, previous=null, { registry = defaultAdapterRegistry
   const context=adapterContext({ sources, previousSessions: prior, now, permissions, discovery: closedDiscovery, legacy: { scanClaude, scanCodex, scanCursor, discoverCapabilities, discoverNativeAutomations }, projects: repositories });
   const historical=registry.run('historicalSessions', context);
   const byId=Object.fromEntries(historical.map((row)=>[row.id,row.value]));
-  const claude=byId.claude||{sessions:[],diagnostics:{}},codex=byId.codex||{sessions:[],diagnostics:{}},cursor=byId.cursor||{sessions:[],diagnostics:{}},cline=byId.cline||{sessions:[],diagnostics:{}};
+  const claude=byId.claude||{sessions:[],diagnostics:{}},codex=byId.codex||{sessions:[],diagnostics:{}},cursor=byId.cursor||{sessions:[],diagnostics:{}},cline=byId.cline||{sessions:[],diagnostics:{}},hermes=byId.hermes||{sessions:[],diagnostics:{}};
   const cursorTokens=permissions.localRead ? cursorTokenSessionsFromDb(homedir,prior,now) : { sessions: [], diagnostics: { cursorTokenAvailability: 'disabled-by-permission' } };
   const sessions=[...historical.flatMap((row)=>Array.isArray(row.value?.sessions)?row.value.sessions.map((session)=>({...session,adapterId:session.adapterId||row.id})):[]),...cursorTokens.sessions.map((session)=>({...session,adapterId:session.adapterId||'cursor'}))];
   const inventory=registry.run('capabilities', context).find((row)=>row.id==='local-inventory')?.value || [];
@@ -293,6 +294,6 @@ export function scan(sources, previous=null, { registry = defaultAdapterRegistry
   const localInferenceState=discoveries.find((row)=>row.id==='local-inference')?.value;
   if (localInferenceState) Object.assign(sourceStates,localInferenceState);
   const adapterHealth=discoveries.map((row)=>({ id:row.id, adapterVersion:row.manifest.adapterVersion, capabilities:row.manifest.capabilities, state:row.error?'error':'available', error:row.error||null }));
-  return derive({schemaVersion:SCHEMA_VERSION,metricVersion:METRIC_VERSION,sources,repositories,sessions,rawCapabilities,capabilityUsageEvents:newEvents,harnessRuns:[],editorHosts:permissions.localRead?[discoverVsCodeAI(homedir)]:[],sourceStates,adapterHealth,adapterManifests:registry.manifests(),observedIdentities:observedIdentityRegistry(sessions,previous?.observedIdentities||[],{now}),tokenVisualScale:previous?.tokenVisualScale||null,permissions,errors:historical.filter((row)=>row.error).map((row)=>row.error),diagnostics:{...claude.diagnostics,...codex.diagnostics,...cursor.diagnostics,...cline.diagnostics,...cursorTokens.diagnostics,durationMs:Date.now()-began}});
+  return derive({schemaVersion:SCHEMA_VERSION,metricVersion:METRIC_VERSION,sources,repositories,sessions,rawCapabilities,capabilityUsageEvents:newEvents,harnessRuns:[],editorHosts:permissions.localRead?[discoverVsCodeAI(homedir)]:[],sourceStates,adapterHealth,adapterManifests:registry.manifests(),observedIdentities:observedIdentityRegistry(sessions,previous?.observedIdentities||[],{now}),tokenVisualScale:previous?.tokenVisualScale||null,permissions,errors:historical.filter((row)=>row.error).map((row)=>row.error),diagnostics:{...claude.diagnostics,...codex.diagnostics,...cursor.diagnostics,...cline.diagnostics,...hermes.diagnostics,...cursorTokens.diagnostics,durationMs:Date.now()-began}});
 }
-export function defaultSources(options={}){const settings=options.settings||{};const roots=resolveProjectRoots({env:process.env,dataDir:options.dataDir,settings,homedir:home});return {projectsRoot:roots[0],projectsRoots:roots,claudeRoot:path.join(home,'.claude','projects'),codexRoot:path.join(home,'.codex','sessions'),cursorRoot:path.join(home,'.cursor','projects'),cursorStorageRoot:cursorStorageRoot(home),clineRoot:path.join(home,'.cline'),clineSessionsRoot:path.join(home,'.cline','data','sessions'),antigravityRoot:path.join(home,'.gemini','antigravity'),antigravityCliRoot:path.join(home,'.gemini','antigravity-cli'),homeDir:home,permissions:normalizePermissions(settings.permissions),connectedServices:settings.connectedServices||{}};}
+export function defaultSources(options={}){const settings=options.settings||{};const roots=resolveProjectRoots({env:process.env,dataDir:options.dataDir,settings,homedir:home});return {projectsRoot:roots[0],projectsRoots:roots,claudeRoot:path.join(home,'.claude','projects'),codexRoot:path.join(home,'.codex','sessions'),cursorRoot:path.join(home,'.cursor','projects'),cursorStorageRoot:cursorStorageRoot(home),clineRoot:path.join(home,'.cline'),clineSessionsRoot:path.join(home,'.cline','data','sessions'),hermesRoot:process.env.HERMES_HOME||path.join(home,'.hermes'),antigravityRoot:path.join(home,'.gemini','antigravity'),antigravityCliRoot:path.join(home,'.gemini','antigravity-cli'),homeDir:home,permissions:normalizePermissions(settings.permissions),connectedServices:settings.connectedServices||{}};}

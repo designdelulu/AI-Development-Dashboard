@@ -40,6 +40,7 @@ const MODEL_PROVIDERS = [
   { provider: 'xAI', pattern: /grok/i, agent: 'Grok' },
   { provider: 'Google', pattern: /gemini|gemma/i, agent: null },
   { provider: 'Alibaba', pattern: /qwen/i, agent: null },
+  { provider: 'Z.AI', pattern: /(?:^|[/:_-])z-ai(?:[/:_-]|$)|\bglm[-_]?\d/i, agent: null },
   { provider: 'Anthropic', pattern: /claude|opus|sonnet|haiku|fable/i, agent: 'Claude' },
   { provider: 'OpenAI', pattern: /gpt-|o1-|o3-|o4-|codex/i, agent: 'Codex' }
 ];

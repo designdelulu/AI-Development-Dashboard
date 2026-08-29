@@ -91,5 +91,10 @@ test('bug-report UI keeps review, screenshot, and local-save controls explicit',
   assert.match(app, /issues\/new\?template=bug_report\.yml/);
   assert.match(app, /Review your report/);
   assert.match(app, /Open GitHub issue/);
-  assert.match(app, /Drag an image here/);
+  assert.match(app, /Drop an image here/);
+  assert.match(app, /Nothing is submitted automatically/);
+  assert.match(app, /Private by design/);
+  assert.match(app, /bug-review-summary/);
+  assert.match(app, /bug-edit/);
+  assert.match(app, /e\.key==='Tab'/);
 });
