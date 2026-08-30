@@ -10,6 +10,13 @@ export const PRESENCE_POLL_MS = 5_000;
 // Presence Unknown rather than pretending the stale answer is current.
 export const PRESENCE_STALE_GOOD_MS = 15_000;
 
+export function processSnapshotCommand(platform = process.platform) {
+  // LaunchServices/dashboard processes can have a minimal PATH. Use the
+  // system executable on macOS instead of relying on shell lookup, while
+  // keeping other supported platforms portable.
+  return platform === 'darwin' ? '/bin/ps' : 'ps';
+}
+
 const basename = (value = '') => String(value).split('/').at(-1).toLowerCase();
 
 export function processSnapshotFromOutput(output, { platform = process.platform, now = Date.now } = {}) {
@@ -24,7 +31,7 @@ export function processSnapshot({ run = execFileSync, platform = process.platfor
   try {
     // `comm` is the executable path, not the full command line: project paths,
     // prompts, arguments, and terminal content are never inspected.
-    const output = run('ps', ['-axo', 'comm='], { encoding: 'utf8', timeout: 750, maxBuffer: 512 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
+    const output = run(processSnapshotCommand(platform), ['-axo', 'comm='], { encoding: 'utf8', timeout: 750, maxBuffer: 512 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
     return processSnapshotFromOutput(output, { platform, now: () => new Date(checkedAt).getTime() });
   } catch {
     return { reliable: false, commands: [], checkedAt, reason: 'The local process snapshot was unavailable.' };

@@ -258,3 +258,9 @@ test('validated live evidence can hydrate a Cline lane before historical discove
   const refreshed = runtimeCatalogForLiveEvidence({ version: 1, runtimes: [{ id: 'cline', agent: 'Cline', host: 'VS Code', liveCapable: true }], liveRuntimes: [{ id: 'cline', agent: 'Cline', host: 'VS Code', liveCapable: true }] }, [clineAdapter.manifest], ['Cline'], { Cline: 'Cursor' }, { Cline: { model: 'moonshotai/kimi-live' } });
   assert.equal(refreshed.liveRuntimes[0].host, 'Cursor');
 });
+
+test('a discovered open Cursor gains an Idle-capable lane without history and does not create Cline by host association', () => {
+  const catalog = runtimeCatalogForLiveEvidence({ version: 1, runtimes: [], liveRuntimes: [] }, [cursorAdapter.manifest, clineAdapter.manifest], [], {}, {}, { presentAgents: ['Cursor'] });
+  assert.deepEqual(catalog.liveRuntimes.map((runtime) => runtime.agent), ['Cursor']);
+  assert.deepEqual(catalog.liveRuntimes[0].sourceState, { presence: { state: 'present', evidence: ['runtime-present'] } });
+});

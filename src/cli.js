@@ -29,7 +29,7 @@ import { createRediscoveryScheduler } from './rediscovery.js';
 import { installMode, updateGitCheckout } from './lifecycle/update.js';
 import { mergeObservedIdentities, runtimeCatalogForLiveEvidence } from './runtime-registry.js';
 import { localInferenceServices } from './local-inference.js';
-import { createPresenceSampler, PRESENCE_POLL_MS, processSnapshotFromOutput } from './runtime-presence.js';
+import { createPresenceSampler, PRESENCE_POLL_MS, processSnapshotCommand, processSnapshotFromOutput } from './runtime-presence.js';
 import { validateProjectRoots } from './onboarding.js';
 import { createOpenRouterService } from './openrouter/service.js';
 import { disableAntigravityCapture, enableAntigravityCapture, previewAntigravityCapture } from './antigravity.js';
@@ -594,10 +594,11 @@ let presencePollInFlight = false;
 function pollPresenceSnapshot() {
   if (presencePollInFlight) return;
   presencePollInFlight = true;
-  execFile('ps', ['-axo', 'comm='], { encoding: 'utf8', timeout: 3_000, maxBuffer: 512 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }, (error, stdout) => {
+  execFile(processSnapshotCommand(), ['-axo', 'comm='], { encoding: 'utf8', timeout: 3_000, maxBuffer: 512 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }, (error, stdout) => {
     presencePollInFlight = false;
     if (error) {
-      latestPresenceSnapshot = { reliable: false, commands: [], checkedAt: new Date().toISOString(), reason: 'The local process snapshot was unavailable.' };
+      const code = String(error.code || 'PROCESS_SNAPSHOT_ERROR').replace(/[^A-Z0-9_-]/gi, '').slice(0, 48);
+      latestPresenceSnapshot = { reliable: false, commands: [], checkedAt: new Date().toISOString(), reason: `The local process snapshot was unavailable (${code}).` };
       return;
     }
     latestPresenceSnapshot = processSnapshotFromOutput(stdout);
@@ -625,17 +626,19 @@ function liveState() {
     ...(hermesInProgress ? ['Hermes Agent'] : [])
   ])];
   const manifests = current.adapterManifests?.length ? current.adapterManifests : defaultAdapterRegistry().manifests();
-  const liveCatalog = runtimeCatalogForLiveEvidence(current.runtimeCatalog || {}, manifests, liveAgents, { Cline: clineHostForInstallation(clineInstallationForLive()) || 'Cursor', 'Hermes Agent': hermesInProgress?.host || 'Hermes Agent' }, { Cline: clineInProgress || {}, 'Hermes Agent': hermesInProgress || {} });
-  const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity, runtimeCatalog: liveCatalog });
-  // Presence sampling should use the same live catalog sent to the browser.
-  // A validated signal can precede the asynchronous historical scan; keeping
-  // the old catalog here would leave that lane without a presence state.
-  const runtimes = liveCatalog.liveRuntimes || [];
+  const provisionalCatalog = runtimeCatalogForLiveEvidence(current.runtimeCatalog || {}, manifests, liveAgents, { Cline: clineHostForInstallation(clineInstallationForLive()) || 'Cursor', 'Hermes Agent': hermesInProgress?.host || 'Hermes Agent' }, { Cline: clineInProgress || {}, 'Hermes Agent': hermesInProgress || {} });
+  // Presence starts from discovered runtimes, rather than the current live
+  // catalog. Otherwise an open Cursor with no AI history cannot ever earn its
+  // required Idle lane. Cline remains gated by its own discovery state.
+  const knownRuntimes = new Set((current.runtimeCatalog?.liveRuntimes || []).map((runtime) => runtime.id));
+  const runtimes = provisionalCatalog.runtimes.filter((runtime) => runtime.liveCapable && (knownRuntimes.has(runtime.id) || current.sourceStates?.[runtime.sourceKey]?.installed?.state === 'detected' || liveAgents.includes(runtime.agent)));
   if (!samplePresence || samplePresence.runtimes !== runtimes) {
     samplePresence = presenceSampler(runtimes);
     samplePresence.runtimes = runtimes;
   }
   const presenceStates = samplePresence();
+  const liveCatalog = runtimeCatalogForLiveEvidence(current.runtimeCatalog || {}, manifests, liveAgents, { Cline: clineHostForInstallation(clineInstallationForLive()) || 'Cursor', 'Hermes Agent': hermesInProgress?.host || 'Hermes Agent' }, { Cline: clineInProgress || {}, 'Hermes Agent': hermesInProgress || {} }, { presentAgents: Object.entries(presenceStates).filter(([, presence]) => presence?.state === 'present').map(([agent]) => agent) });
+  const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity, runtimeCatalog: liveCatalog });
   // Attention is an in-memory current condition, not durable history. A
   // confirmed runtime exit resolves it before the next process launch; a
   // reopened runtime must emit a fresh explicit request to become Needs You.

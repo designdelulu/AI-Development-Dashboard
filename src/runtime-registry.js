@@ -63,10 +63,9 @@ export function runtimeCatalog(manifests = [], sourceStates = {}, sessions = [])
 }
 
 // Live evidence can arrive before the asynchronous historical scan has
-// produced source states/sessions. Preserve the declared adapter boundary and
-// add only agents that have a current validated signal; presence or an
-// installed extension alone never enters this list.
-export function runtimeCatalogForLiveEvidence(catalog = {}, manifests = [], agents = [], hostOverrides = {}, liveDetails = {}) {
+// produced source states/sessions. A positively observed, discovered runtime
+// also needs a stable Idle lane; its presence remains distinct from AI work.
+export function runtimeCatalogForLiveEvidence(catalog = {}, manifests = [], agents = [], hostOverrides = {}, liveDetails = {}, { presentAgents = [] } = {}) {
   const declared = new Map((catalog.runtimes || []).filter((runtime) => runtime?.id).map((runtime) => [runtime.id, runtime]));
   for (const manifest of manifests || []) {
     const runtime = runtimeDescriptor(manifest);
@@ -90,6 +89,11 @@ export function runtimeCatalogForLiveEvidence(catalog = {}, manifests = [], agen
       continue;
     }
     live.set(runtime.id, { ...runtime, host, observedHosts: host ? [host] : [], ...(detail.model ? { model: detail.model, modelLabel: detail.model, provider: detail.provider || null, gateway: detail.gateway || null } : {}), sourceState: { live: { state: 'active', evidence: ['validated-live-signal'] } } });
+  }
+  for (const agent of new Set(presentAgents || [])) {
+    const runtime = [...declared.values()].find((item) => item.agent === agent && item.liveCapable);
+    if (!runtime || live.has(runtime.id)) continue;
+    live.set(runtime.id, { ...runtime, observedHosts: runtime.host ? [runtime.host] : [], sourceState: { presence: { state: 'present', evidence: ['runtime-present'] } } });
   }
   return { version: 1, runtimes: [...declared.values()], liveRuntimes: [...live.values()] };
 }
