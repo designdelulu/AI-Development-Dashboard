@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { classifyAgentState } from '../public/agent-state.js';
-import { ClaudeToolTracker, CursorTurnTracker, claudeToolLifecycleEvents, cursorTranscriptHasAgentTurn, cursorTurnLifecycle } from '../src/live-work.js';
+import { ClaudeToolTracker, CursorTurnTracker, claudeToolLifecycleEvents, cursorTranscriptBootstrapEligible, cursorTranscriptHasAgentTurn, cursorTurnLifecycle } from '../src/live-work.js';
 import { liveStatesFromEvents } from '../src/resume.js';
 
 const tempJsonl = (rows = []) => {
@@ -54,4 +54,21 @@ test('Cursor structured turn stays Working through sparse planning and clears on
   assert.equal(tracker.signal(30_000)?.active, true);
   assert.equal(tracker.observe('/tmp/cursor.jsonl', [{ type: 'turn_ended', status: 'success' }], 31_000).completed, true);
   assert.equal(tracker.signal(31_001), null);
+});
+
+test('Cursor current transcript bootstrap restores a running built-in AI turn but old history stays Idle', () => {
+  const now = 1_000_000;
+  assert.equal(cursorTranscriptBootstrapEligible(now - 5_000, now), true);
+  assert.equal(cursorTranscriptBootstrapEligible(now - 300_001, now), false);
+  const tracker = new CursorTurnTracker({ maxAgeMs: 60_000 });
+  // These are structural roles only: no message body is retained by the tracker.
+  tracker.observe('/tmp/current-cursor.jsonl', [{ message: { role: 'user', content: 'private prompt' } }], now);
+  assert.equal(tracker.signal(now + 5_000)?.active, true);
+  tracker.observe('/tmp/current-cursor.jsonl', [{ type: 'turn_ended', status: 'success' }], now + 8_000);
+  assert.equal(tracker.signal(now + 8_001), null);
+  const old = new CursorTurnTracker({ maxAgeMs: 60_000 });
+  // The caller uses bootstrap eligibility before this observation; an old
+  // transcript cannot be allowed to start a fresh Working lease on restart.
+  assert.equal(cursorTranscriptBootstrapEligible(now - 60_001, now, 60_000), false);
+  assert.equal(old.signal(now), null);
 });

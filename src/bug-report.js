@@ -41,6 +41,20 @@ function safeAdapter(value = {}) {
   };
 }
 
+function safeLiveDecision(value = {}) {
+  const hash = text(value.sessionHash, 64).toLowerCase();
+  return {
+    timestamp: text(value.timestamp, 40) || null,
+    adapter: text(value.adapter, 40) || 'unknown',
+    sessionHash: /^[a-f0-9]{8,64}$/.test(hash) ? hash : null,
+    host: text(value.host, 60) || null,
+    rawLifecycle: text(value.rawLifecycle, 60) || null,
+    lastStructuralActivityAt: text(value.lastStructuralActivityAt, 40) || null,
+    normalizedState: text(value.normalizedState, 40) || null,
+    reason: text(value.reason, 100) || null
+  };
+}
+
 /**
  * Build diagnostics only from explicit, allowlisted metadata. Callers should
  * never pass a settings object, environment object, transcript, or raw log.
@@ -87,6 +101,7 @@ export function buildDiagnostics(input = {}) {
       usageObservations: integer(counts.usageObservations, 0)
     },
     adapters: Array.isArray(normalized.adapters) ? normalized.adapters.map(safeAdapter).slice(0, 40) : [],
+    liveDecisions: Array.isArray(normalized.liveDecisions) ? normalized.liveDecisions.map(safeLiveDecision).slice(-40) : [],
     recentLifecycleEvents: Array.isArray(normalized.recentLifecycleEvents)
       ? normalized.recentLifecycleEvents.slice(-40).map((event) => ({
         at: text(event.at, 40) || null,
@@ -192,6 +207,6 @@ export async function submitBugReport(report, { screenshot = null, endpoint = co
   }
 }
 
-export function diagnosticsFromLocalState({ dataDir, version = null, commit = null, dataSchemaVersion = null, lifecycle = {}, permissions = {}, adapters = [], counts = {} } = {}) {
-  return buildDiagnostics({ version, commit, dataSchemaVersion, lifecycle, permissions, adapters, counts, recentLifecycleEvents: readLifecycleEvents(path.join(dataDir, 'lifecycle.jsonl')) });
+export function diagnosticsFromLocalState({ dataDir, version = null, commit = null, dataSchemaVersion = null, lifecycle = {}, permissions = {}, adapters = [], counts = {}, liveDecisions = [] } = {}) {
+  return buildDiagnostics({ version, commit, dataSchemaVersion, lifecycle, permissions, adapters, counts, liveDecisions, recentLifecycleEvents: readLifecycleEvents(path.join(dataDir, 'lifecycle.jsonl')) });
 }

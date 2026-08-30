@@ -18,6 +18,7 @@ test('bug diagnostics are allowlisted and exclude secrets, content, notes, and a
     secret: 'sk-obvious-fake-secret',
     prompt: 'Never include this prompt body',
     path: '/Users/ericbarker/Private/Project',
+    liveDecisions: [{ adapter: 'hermes', sessionHash: 'abcdef0123456789', host: 'Hermes Desktop', rawLifecycle: 'lease-active', normalizedState: 'Working', reason: 'turn-running', privatePath: '/Users/ericbarker/Private', prompt: 'excluded' }],
     adapters: [{ id: 'Claude', installed: true, capabilities: ['history'] }]
   });
   const text = JSON.stringify(diagnostics);
@@ -29,6 +30,7 @@ test('bug diagnostics are allowlisted and exclude secrets, content, notes, and a
   assert.equal(diagnostics.lifecycle.portOwner, 'occupied-unknown');
   assert.equal(diagnostics.lifecycle.healthState, 'unavailable');
   assert.equal(diagnostics.adapters[0].id, 'Claude');
+  assert.deepEqual(diagnostics.liveDecisions[0], { timestamp: null, adapter: 'hermes', sessionHash: 'abcdef0123456789', host: 'Hermes Desktop', rawLifecycle: 'lease-active', lastStructuralActivityAt: null, normalizedState: 'Working', reason: 'turn-running' });
 });
 
 test('bug report bundles include only an explicitly selected image and bounded metadata', () => {

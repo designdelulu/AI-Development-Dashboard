@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { discoverHermes, hermesInstallation, hermesLiveCompletions, readHermesHistory, readHermesLive, readHermesLiveAsync } from '../src/hermes.js';
+import { discoverHermes, hermesInstallation, hermesLiveCompletions, readHermesHistory, readHermesLive, readHermesLiveAsync, readHermesLiveSnapshotAsync, reconcileHermesLiveTurns } from '../src/hermes.js';
 import * as hermesAdapter from '../src/adapters/hermes.js';
 
 const temp = (name) => fs.mkdtempSync(path.join(os.tmpdir(), `${name}-`));
@@ -85,11 +85,29 @@ test('Hermes durable turn lease is Working while a desktop slot alone is not', a
   assert.equal(active[0].host, 'Hermes Desktop');
   assert.equal(active[0].gateway, 'OpenRouter');
   assert.equal(active[0].source, 'hermes-durable-turn-lease');
+  assert.match(active[0].sessionHash, /^[a-f0-9]{16}$/);
   assert.equal((await readHermesLiveAsync({ installation, now: Date.now(), timeoutMs: 5000 })).length, 1);
   const idleFixture = fixture({ live: false });
   assert.deepEqual(readHermesLive({ installation: hermesInstallation({ homeDir: idleFixture.home, env: { PATH: '' } }), now: Date.now() }), []);
   const completed = hermesLiveCompletions(active, [], Date.parse('2026-08-29T00:00:00Z'));
   assert.deepEqual(completed.map(({ agent, host, model, kind }) => ({ agent, host, model, kind })), [{ agent: 'Hermes Agent', host: 'Hermes Desktop', model: 'z-ai/glm-5.3-flash', kind: 'hermes-durable-turn-completed' }]);
+});
+
+test('Hermes retains a validated lease through a transient unavailable probe but not beyond Hermes expiry', async () => {
+  const { home } = fixture({ live: true });
+  const installation = hermesInstallation({ homeDir: home, env: { PATH: '' } });
+  const snapshot = await readHermesLiveSnapshotAsync({ installation, now: Date.now(), timeoutMs: 5_000 });
+  assert.equal(snapshot.probe.state, 'ok');
+  assert.equal(snapshot.turns.length, 1);
+  const active = snapshot.turns[0];
+  const retained = reconcileHermesLiveTurns([active], { turns: [], probe: { state: 'unavailable', availableProfiles: [] } }, Date.now());
+  assert.equal(retained.turns.length, 1);
+  assert.equal(retained.completed.length, 0);
+  const expired = reconcileHermesLiveTurns([{ ...active, leaseUntil: new Date(Date.now() - 1).toISOString() }], { turns: [], probe: { state: 'unavailable', availableProfiles: [] } }, Date.now());
+  assert.deepEqual(expired.turns, []);
+  const completed = reconcileHermesLiveTurns([active], { turns: [], probe: { state: 'ok', availableProfiles: ['Default'] } }, Date.now());
+  assert.equal(completed.turns.length, 0);
+  assert.equal(completed.completed.length, 1);
 });
 
 test('Hermes safely degrades for an unsupported future state schema and profiles remain separated', () => {

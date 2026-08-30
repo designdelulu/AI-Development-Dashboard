@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { spawn, spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { lookupBinary } from './open-agent.js';
@@ -13,6 +14,7 @@ import { sessionIdentity } from './identity.js';
 const HERMES_SQLITE_HELPER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'hermes-sqlite-ro.py');
 const HERMES_CONFIG_MAX_BYTES = 128 * 1024;
 const HERMES_MAX_SESSIONS = 2_000;
+const emptyLiveResult = (probe = 'unavailable') => ({ supported: false, probe, sessions: [], modelUsage: [], turnLeases: [] });
 const exists = (value) => { try { return Boolean(value) && fs.statSync(value).isDirectory(); } catch { return false; } };
 const fileExists = (value) => { try { return Boolean(value) && fs.statSync(value).isFile(); } catch { return false; } };
 const asIso = (value) => {
@@ -81,28 +83,28 @@ export function hermesInstallation({ homeDir = os.homedir(), env = process.env }
 }
 
 function helper(dbFile, operation = 'history', timeoutMs = 5_000) {
-  if (!fileExists(dbFile)) return { supported: false, sessions: [], modelUsage: [], turnLeases: [] };
+  if (!fileExists(dbFile)) return emptyLiveResult('not-configured');
   try {
     const child = spawnSync('python3', [HERMES_SQLITE_HELPER, dbFile, operation, String(HERMES_MAX_SESSIONS)], { encoding: 'utf8', timeout: timeoutMs, maxBuffer: 2 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
-    if (child.error || child.status !== 0) return { supported: false, sessions: [], modelUsage: [], turnLeases: [] };
+    if (child.error || child.status !== 0) return emptyLiveResult();
     const value = JSON.parse(child.stdout || '{}');
-    return value && typeof value === 'object' ? value : { supported: false, sessions: [], modelUsage: [], turnLeases: [] };
-  } catch { return { supported: false, sessions: [], modelUsage: [], turnLeases: [] }; }
+    return value && typeof value === 'object' ? value : emptyLiveResult();
+  } catch { return emptyLiveResult(); }
 }
 
 function helperAsync(dbFile, operation = 'live', timeoutMs = 900) {
-  if (!fileExists(dbFile)) return Promise.resolve({ supported: false, sessions: [], modelUsage: [], turnLeases: [] });
+  if (!fileExists(dbFile)) return Promise.resolve(emptyLiveResult('not-configured'));
   return new Promise((resolve) => {
     let settled = false, output = '', timer = null;
     const finish = (value) => { if (settled) return; settled = true; if (timer) clearTimeout(timer); resolve(value); };
     try {
       const child = spawn('python3', [HERMES_SQLITE_HELPER, dbFile, operation, String(HERMES_MAX_SESSIONS)], { stdio: ['ignore', 'pipe', 'ignore'] });
-      child.stdout.on('data', (chunk) => { output = `${output}${chunk}`; if (output.length > 2 * 1024 * 1024) { try { child.kill('SIGKILL'); } catch {} finish({ supported: false, sessions: [], modelUsage: [], turnLeases: [] }); } });
-      child.once('error', () => finish({ supported: false, sessions: [], modelUsage: [], turnLeases: [] }));
-      child.once('close', (code) => { if (code !== 0) return finish({ supported: false, sessions: [], modelUsage: [], turnLeases: [] }); try { const value = JSON.parse(output || '{}'); finish(value && typeof value === 'object' ? value : { supported: false, sessions: [], modelUsage: [], turnLeases: [] }); } catch { finish({ supported: false, sessions: [], modelUsage: [], turnLeases: [] }); } });
-      timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} finish({ supported: false, sessions: [], modelUsage: [], turnLeases: [] }); }, timeoutMs);
+      child.stdout.on('data', (chunk) => { output = `${output}${chunk}`; if (output.length > 2 * 1024 * 1024) { try { child.kill('SIGKILL'); } catch {} finish(emptyLiveResult()); } });
+      child.once('error', () => finish(emptyLiveResult()));
+      child.once('close', (code) => { if (code !== 0) return finish(emptyLiveResult()); try { const value = JSON.parse(output || '{}'); finish(value && typeof value === 'object' ? value : emptyLiveResult()); } catch { finish(emptyLiveResult()); } });
+      timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} finish(emptyLiveResult()); }, timeoutMs);
       timer.unref?.();
-    } catch { finish({ supported: false, sessions: [], modelUsage: [], turnLeases: [] }); }
+    } catch { finish(emptyLiveResult()); }
   });
 }
 
@@ -237,21 +239,47 @@ function liveRows(value, home, install, now) {
     const row = (value.sessions || []).find((session) => session.id === lease.conversation_id);
     if (!row) continue;
     const registryEntry = registry.get(lease.conversation_id), route = routeFor(row, install.config);
-    active.push({ agent: 'Hermes Agent', host: registryEntry?.surface ? hermesHost(registryEntry.surface) : hermesHost(row.source), model: route.model, provider: sessionIdentity({ model: route.model, inferAgent: false }).provider, gateway: route.gateway, since: asIso(lease.acquired_at), leaseUntil: asIso(lease.expires_at), source: 'hermes-durable-turn-lease', confidence: 'Structured', reason: 'Hermes holds a current durable turn lease for this session.' });
+    active.push({ agent: 'Hermes Agent', profile: home.profile, sessionHash: crypto.createHash('sha256').update(`${home.profile}:${lease.conversation_id}`).digest('hex').slice(0, 16), host: registryEntry?.surface ? hermesHost(registryEntry.surface) : hermesHost(row.source), model: route.model, provider: sessionIdentity({ model: route.model, inferAgent: false }).provider, gateway: route.gateway, since: asIso(lease.acquired_at), leaseUntil: asIso(lease.expires_at), source: 'hermes-durable-turn-lease', confidence: 'Structured', reason: 'Hermes holds a current durable turn lease for this session.' });
   }
   return active;
 }
 
 export async function readHermesLiveAsync({ installation, now = Date.now(), timeoutMs = 3000 } = {}) {
+  return (await readHermesLiveSnapshotAsync({ installation, now, timeoutMs })).turns;
+}
+
+// A failed narrow read is not the same thing as a successful read with no
+// lease. Callers use this distinction to preserve a previously validated turn
+// only until its own persisted expiry, never by an invented timeout.
+export async function readHermesLiveSnapshotAsync({ installation, now = Date.now(), timeoutMs = 3000 } = {}) {
   const install = installation || hermesInstallation();
+  if (!(install.homes || []).length) return { turns: [], probe: { state: 'not-configured', availableProfiles: [], unavailableProfiles: [], checkedAt: new Date(now).toISOString() } };
   const values = await Promise.all((install.homes || []).map(async (home) => ({ home, value: await helperAsync(home.dbFile, 'live', timeoutMs) })));
-  return values.flatMap(({ home, value }) => liveRows(value, home, install, now)).sort((a, b) => String(a.since).localeCompare(String(b.since)));
+  const supported = values.filter(({ value }) => value?.supported);
+  const state = supported.length === values.length ? 'ok'
+    : supported.length ? 'partial'
+      : values.every(({ value }) => value?.probe === 'unsupported') ? 'unsupported' : 'unavailable';
+  return {
+    turns: supported.flatMap(({ home, value }) => liveRows(value, home, install, now)).sort((a, b) => String(a.since).localeCompare(String(b.since))),
+    probe: { state, availableProfiles: supported.map(({ home }) => home.profile), unavailableProfiles: values.filter(({ value }) => !value?.supported).map(({ home }) => home.profile), checkedAt: new Date(now).toISOString() }
+  };
+}
+
+export function reconcileHermesLiveTurns(previous = [], snapshot = {}, now = Date.now()) {
+  const retained = (previous || []).filter((turn) => new Date(turn?.leaseUntil).getTime() > now);
+  const probe = snapshot?.probe || { state: 'unavailable', availableProfiles: [] };
+  if (!['ok', 'partial'].includes(probe.state)) return { turns: retained, completed: [], probe, retainedByProbeFailure: retained.length > 0 };
+  const availableProfiles = new Set(probe.availableProfiles || []);
+  const readablePrior = retained.filter((turn) => availableProfiles.has(turn.profile));
+  const unreadablePrior = retained.filter((turn) => !availableProfiles.has(turn.profile));
+  const next = Array.isArray(snapshot?.turns) ? snapshot.turns : [];
+  return { turns: [...next, ...unreadablePrior], completed: hermesLiveCompletions(readablePrior, next, now), probe, retainedByProbeFailure: unreadablePrior.length > 0 };
 }
 
 // Completion is a lifecycle transition, not an inference from a quiet file or
 // a vanished process. This compact event feeds the existing Recent decay only
 // after a previously observed durable turn lease is gone.
 export function hermesLiveCompletions(previous = [], next = [], now = Date.now()) {
-  const current = new Set((next || []).map((turn) => `${turn.since || ''}|${turn.model || ''}|${turn.host || ''}`));
-  return (previous || []).filter((turn) => !current.has(`${turn.since || ''}|${turn.model || ''}|${turn.host || ''}`)).map((turn) => ({ agent: 'Hermes Agent', host: turn.host || 'Hermes Agent', model: turn.model || null, timestamp: new Date(now).toISOString(), kind: 'hermes-durable-turn-completed' }));
+  const current = new Set((next || []).map((turn) => turn.sessionHash || `${turn.since || ''}|${turn.model || ''}|${turn.host || ''}`));
+  return (previous || []).filter((turn) => !current.has(turn.sessionHash || `${turn.since || ''}|${turn.model || ''}|${turn.host || ''}`)).map((turn) => ({ agent: 'Hermes Agent', sessionHash: turn.sessionHash || null, host: turn.host || 'Hermes Agent', model: turn.model || null, timestamp: new Date(now).toISOString(), kind: 'hermes-durable-turn-completed' }));
 }

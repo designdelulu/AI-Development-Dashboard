@@ -100,6 +100,15 @@ export function cursorTurnLifecycle(rows = []) {
   return events;
 }
 
+// A watcher baseline may be an already-running Cursor turn after a dashboard
+// restart. Only a recently modified agent transcript may bootstrap Working;
+// editor activity never reaches this path, and an old transcript remains idle
+// until it receives fresh structural lifecycle evidence.
+export function cursorTranscriptBootstrapEligible(mtimeMs, now = Date.now(), maxAgeMs = CURSOR_IN_PROGRESS_MAX_MS) {
+  const age = now - Number(mtimeMs);
+  return Number.isFinite(age) && age >= -10_000 && age <= maxAgeMs;
+}
+
 export class CursorTurnTracker {
   constructor({ maxAgeMs = CURSOR_IN_PROGRESS_MAX_MS } = {}) {
     this.maxAgeMs = maxAgeMs;

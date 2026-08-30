@@ -5,6 +5,7 @@
 - Project-first Overview with local resume context and handoff support.
 - Registry-driven discovery and Live Agent Activity for supported runtimes, including Cursor-hosted Cline where structural evidence is available.
 - Hermes Agent local telemetry with privacy-safe structural session/token metadata, OpenRouter route identity, and durable-turn live evidence.
+- Hermes/Cursor live tracking now distinguishes unavailable probes from actual completion, restores fresh Cursor AI turns after restart, and records bounded privacy-safe decision reasons.
 - Token, model, provider, capacity, and adaptive Fresh + Output activity views.
 - Optional OpenRouter Management analytics, kept separate from local inference credentials and live-agent identity.
 - Private Efficiency evidence with defensible comparison gates rather than a universal productivity score.

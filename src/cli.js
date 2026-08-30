@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
+import crypto from 'node:crypto';
 import { execFile, execFileSync, spawn as spawnProcess } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { defaultAdapterRegistry, defaultSources, derive, scan, applyProjectMetadata, PROJECT_STATUSES, achievementsFor, SCHEMA_VERSION } from './core.js';
@@ -9,9 +10,9 @@ import { readPlanCapacity } from './capacity.js';
 import { shareableStack, manifest, privateInventory, publicMetricOptions, createSnapshot, shareCardSvg, setupPrompt } from './sharing.js';
 import { claudeLiveDecision, cursorLiveDecision, isCursorTranscriptPath, isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
-import { clineSnapshotBootstrapEligible, ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
+import { clineSnapshotBootstrapEligible, ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, cursorTranscriptBootstrapEligible, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
 import { CLINE_DB_LIVE_MAX_AGE_MS, clineDbActiveEligible, clineHostForInstallation, clineHostForPath, clineInstallation, clineLiveDecision, readClineSessionDbMetadata, readClineSessionMetadata } from './cline.js';
-import { hermesInstallation, hermesLiveCompletions, readHermesLiveAsync } from './hermes.js';
+import { hermesInstallation, readHermesLiveSnapshotAsync, reconcileHermesLiveTurns } from './hermes.js';
 import { loadSettings, saveSettings } from './config.js';
 import { releaseInfo } from './release.js';
 import { tokenReportFromCalendar } from './tokens.js';
@@ -58,6 +59,19 @@ const cursorTurnTracker = new CursorTurnTracker();
 const clineSessionTracker = new ClineSessionTracker();
 let liveClineInstallation = null, liveClineInstallationAt = 0, clineDbPollInFlight = false, clineDbPollTimer = null;
 let liveHermesInstallation = null, liveHermesInstallationAt = 0, hermesLivePollInFlight = false, hermesLivePollTimer = null, hermesLiveTurns = [];
+const liveDecisionTrace = [], liveDecisionKeys = new Map();
+const LIVE_DECISION_TRACE_LIMIT = 120;
+
+function traceSessionHash(value) { return value ? crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16) : null; }
+function recordLiveDecision({ adapter, sessionHash = null, host = null, rawLifecycle = null, lastStructuralActivityAt = null, normalizedState = null, reason = null } = {}) {
+  const entry = { timestamp: new Date().toISOString(), adapter, sessionHash, host, rawLifecycle, lastStructuralActivityAt, normalizedState, reason };
+  const key = [adapter, sessionHash || '-', rawLifecycle || '-', normalizedState || '-', reason || '-'].join('|');
+  const traceScope = sessionHash || rawLifecycle || 'state';
+  if (liveDecisionKeys.get(`${adapter}|${traceScope}`) === key) return;
+  liveDecisionKeys.set(`${adapter}|${traceScope}`, key);
+  liveDecisionTrace.push(entry);
+  while (liveDecisionTrace.length > LIVE_DECISION_TRACE_LIMIT) liveDecisionTrace.shift();
+}
 
 function projectMetadata() { try { return JSON.parse(fs.readFileSync(projectMetaFile, 'utf8')); } catch { return { version: 1, projects: {} }; } }
 function saveProjectMetadata(metadata) { fs.mkdirSync(dataDir, { recursive: true }); fs.writeFileSync(projectMetaFile, JSON.stringify(metadata, null, 2)); }
@@ -257,7 +271,8 @@ async function localBugDiagnostics() {
     },
     permissions: settings.permissions,
     adapters,
-    counts: { projects: stored?.projects?.length || stored?.repositories?.length || 0, sessions: stored?.sessions?.length || 0, capabilities: stored?.capabilities?.length || 0, usageObservations: stored?.efficiency?.foundation?.usageObservations?.length || 0 }
+    counts: { projects: stored?.projects?.length || stored?.repositories?.length || 0, sessions: stored?.sessions?.length || 0, capabilities: stored?.capabilities?.length || 0, usageObservations: stored?.efficiency?.foundation?.usageObservations?.length || 0 },
+    liveDecisions: liveDecisionTrace.slice(-40)
   });
 }
 function contentType(file) {
@@ -357,11 +372,14 @@ function observeLivePath(agent, candidate, { bootstrap = false } = {}) {
     let transcriptHasAgentTurn = false;
     let cursorLifecycle = { started: false, completed: false, active: false };
     const grew = !previous ? next.size > 0 : next.size > previous.size;
-    // A newly discovered transcript may already contain a long historical
-    // tail. Establish its byte baseline first; only appended rows after that
-    // point are eligible live-turn evidence.
-    if (grew && previous && isCursorTranscriptPath(candidate)) {
-      const parsed = readAppendedJsonlRows(candidate, previous?.size ?? 0, cursorLiveCarries.get(candidate) || '');
+    // New files and watcher baselines can be a currently-running Cursor turn.
+    // Parse only their bounded structural tail while it is fresh; an old
+    // transcript never becomes work merely because Cursor is open.
+    const bootstrapTranscript = isCursorTranscriptPath(candidate)
+      && (!previous || bootstrap)
+      && cursorTranscriptBootstrapEligible(next.mtimeMs);
+    if (isCursorTranscriptPath(candidate) && ((grew && previous) || bootstrapTranscript)) {
+      const parsed = readAppendedJsonlRows(candidate, bootstrapTranscript ? 0 : previous?.size ?? 0, cursorLiveCarries.get(candidate) || '');
       cursorLiveCarries.set(candidate, parsed.carry);
       transcriptHasAgentTurn = cursorTranscriptHasAgentTurn(parsed.rows);
       cursorLifecycle = cursorTurnTracker.observe(candidate, parsed.rows, Date.now());
@@ -369,6 +387,15 @@ function observeLivePath(agent, candidate, { bootstrap = false } = {}) {
     const decision = cursorLiveDecision(candidate, previous, next, { transcriptHasAgentTurn });
     liveFiles.set(candidate, agent);
     liveFileSizes.set(candidate, next);
+    if (isCursorTranscriptPath(candidate) && (cursorLifecycle.started || cursorLifecycle.completed || bootstrapTranscript)) {
+      recordLiveDecision({
+        adapter: 'cursor', sessionHash: traceSessionHash(candidate), host: 'Cursor',
+        rawLifecycle: cursorLifecycle.completed ? 'turn-ended' : (cursorLifecycle.active ? 'turn-active' : 'no-active-turn'),
+        lastStructuralActivityAt: new Date(next.mtimeMs).toISOString(),
+        normalizedState: cursorLifecycle.active ? 'Working' : (cursorLifecycle.completed ? 'Recently Active' : 'Idle'),
+        reason: cursorLifecycle.completed ? 'completion' : (cursorLifecycle.active ? (bootstrapTranscript ? 'restart-bootstrap' : 'turn-running') : 'no-active-turn')
+      });
+    }
     if (!decision.emit && !cursorLifecycle.started && !cursorLifecycle.completed) return;
     emitLiveSignal(agent, candidate, previous, next);
     return;
@@ -413,6 +440,7 @@ function observeLivePath(agent, candidate, { bootstrap = false } = {}) {
 function seedLivePath(agent, source, filename, size, mtimeMs) {
   const candidate = filename ? path.resolve(source, String(filename)) : null;
   if (!candidate || !isLiveActivityPath(agent, candidate)) return;
+  if (agent === 'Cursor') return observeLivePath(agent, candidate, { bootstrap: true });
   liveFiles.set(candidate, agent);
   liveFileSizes.set(candidate, { size: Number(size) || 0, mtimeMs: Number(mtimeMs) || 0 });
 }
@@ -477,14 +505,26 @@ async function pollHermesLiveState() {
   if (hermesLivePollInFlight) return;
   hermesLivePollInFlight = true;
   try {
-    const now = Date.now(), next = await readHermesLiveAsync({ installation: hermesInstallationForLive(), now, timeoutMs: 900 });
-    for (const event of hermesLiveCompletions(hermesLiveTurns, next, now)) {
-      const signal = sessionFileSignal({ ...event, previousSize: 0, size: 0 });
-      if (signal) liveActivityEvents.push(signal);
+    const now = Date.now(), result = await readHermesLiveSnapshotAsync({ installation: hermesInstallationForLive(), now, timeoutMs: 900 });
+    const previous = hermesLiveTurns.filter((turn) => new Date(turn.leaseUntil).getTime() > now);
+    if (['ok', 'partial'].includes(result.probe.state)) {
+      const reconciliation = reconcileHermesLiveTurns(previous, result, now);
+      const completed = reconciliation.completed;
+      hermesLiveTurns = reconciliation.turns;
+      for (const turn of result.turns) recordLiveDecision({ adapter: 'hermes', sessionHash: turn.sessionHash, host: turn.host, rawLifecycle: 'lease-active', lastStructuralActivityAt: turn.since, normalizedState: 'Working', reason: 'turn-running' });
+      for (const event of completed) recordLiveDecision({ adapter: 'hermes', sessionHash: event.sessionHash, host: event.host, rawLifecycle: 'lease-released', normalizedState: 'Recently Active', reason: 'completion' });
+      for (const event of completed) {
+        const signal = sessionFileSignal({ ...event, previousSize: 0, size: 0 });
+        if (signal) liveActivityEvents.push(signal);
+      }
+    } else {
+      // The source did not answer; preserve only the lease timestamp Hermes
+      // itself persisted. This is not a fabricated extension of Working.
+      hermesLiveTurns = previous;
+      recordLiveDecision({ adapter: 'hermes', rawLifecycle: result.probe.state, normalizedState: previous.length ? 'Working' : 'Idle', reason: previous.length ? 'probe-unavailable-lease-retained' : 'unsupported-state' });
     }
     const cutoff = now - 60_000;
     while (liveActivityEvents[0] && new Date(liveActivityEvents[0].timestamp).getTime() < cutoff) liveActivityEvents.shift();
-    hermesLiveTurns = next;
   }
   finally { hermesLivePollInFlight = false; }
 }
@@ -609,8 +649,15 @@ function liveState() {
     }
   }
   snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(current, liveCatalog), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: { ...(claudeInProgress ? { Claude: claudeInProgress } : {}), ...(cursorInProgress ? { Cursor: cursorInProgress } : {}), ...(clineInProgress ? { Cline: clineInProgress } : {}), ...(hermesInProgress ? { 'Hermes Agent': hermesInProgress } : {}) }, presenceStates });
+  for (const agent of ['Cursor', 'Hermes Agent']) {
+    const state = snapshot.operator.liveStates?.[agent];
+    if (!state) continue;
+    const presence = presenceStates[agent]?.state;
+    recordLiveDecision({ adapter: agent === 'Cursor' ? 'cursor' : 'hermes', host: agent === 'Cursor' ? 'Cursor' : hermesInProgress?.host || null, rawLifecycle: state.state === 'Working' ? 'turn-active' : 'no-active-turn', normalizedState: state.state, reason: state.state === 'Working' ? (agent === 'Cursor' ? 'turn-running' : 'lease-active') : (presence === 'present' ? 'runtime-present' : (presence === 'closed' ? 'host-closed' : 'presence-unknown')) });
+  }
   snapshot.presence = presenceStates;
   snapshot.agents = detectAgents();
+  snapshot.liveDiagnostics = { bounded: true, privacy: 'Structural lifecycle metadata only; no prompts, responses, code, paths, tool payloads, or credentials.', decisions: liveDecisionTrace.slice(-80) };
   return snapshot;
 }
 function json(res, value, status = 200) {
