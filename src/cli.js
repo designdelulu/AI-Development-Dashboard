@@ -29,10 +29,11 @@ import { createRediscoveryScheduler } from './rediscovery.js';
 import { installMode, updateGitCheckout } from './lifecycle/update.js';
 import { mergeObservedIdentities, runtimeCatalogForLiveEvidence } from './runtime-registry.js';
 import { localInferenceServices } from './local-inference.js';
-import { createPresenceSampler, PRESENCE_POLL_MS, processSnapshotCommand, processSnapshotFromOutput } from './runtime-presence.js';
+import { createPresenceSampler, presenceSamplerKey, PRESENCE_POLL_MS, processNameProbeCommand, processNameSnapshot, processSnapshotCommand, processSnapshotFromOutput } from './runtime-presence.js';
 import { validateProjectRoots } from './onboarding.js';
 import { createOpenRouterService } from './openrouter/service.js';
 import { disableAntigravityCapture, enableAntigravityCapture, previewAntigravityCapture } from './antigravity.js';
+import { writeChunkedText } from './response-stream.js';
 import { applyEfficiencyMetadata, beginComparisonTracking, createCycle, loadEfficiencyMetadata, recordOutcome, removeCycle, saveEfficiencyMetadata } from './efficiency-store.js';
 import { efficiencySnapshot } from './efficiency.js';
 import { buildDashboardService, buildRuntimeServices, createRuntimeResourceSampler, normalizeDiagnostics, runtimeStatusSnapshot } from './runtime-resources.js';
@@ -61,6 +62,10 @@ let liveClineInstallation = null, liveClineInstallationAt = 0, clineDbPollInFlig
 let liveHermesInstallation = null, liveHermesInstallationAt = 0, hermesLivePollInFlight = false, hermesLivePollTimer = null, hermesLiveTurns = [];
 const liveDecisionTrace = [], liveDecisionKeys = new Map();
 const LIVE_DECISION_TRACE_LIMIT = 120;
+const presenceProbeTrace = [];
+const PRESENCE_PROBE_TRACE_LIMIT = 120;
+const liveLoopTrace = [];
+const LIVE_LOOP_TRACE_LIMIT = 120;
 
 function traceSessionHash(value) { return value ? crypto.createHash('sha256').update(String(value)).digest('hex').slice(0, 16) : null; }
 function recordLiveDecision({ adapter, sessionHash = null, host = null, rawLifecycle = null, lastStructuralActivityAt = null, normalizedState = null, reason = null } = {}) {
@@ -71,6 +76,14 @@ function recordLiveDecision({ adapter, sessionHash = null, host = null, rawLifec
   liveDecisionKeys.set(`${adapter}|${traceScope}`, key);
   liveDecisionTrace.push(entry);
   while (liveDecisionTrace.length > LIVE_DECISION_TRACE_LIMIT) liveDecisionTrace.shift();
+}
+function recordPresenceProbe(entry) {
+  presenceProbeTrace.push(entry);
+  while (presenceProbeTrace.length > PRESENCE_PROBE_TRACE_LIMIT) presenceProbeTrace.shift();
+}
+function recordLiveLoop(kind, startedAt, details = {}) {
+  liveLoopTrace.push({ timestamp: new Date().toISOString(), kind, durationMs: Date.now() - startedAt, ...details });
+  while (liveLoopTrace.length > LIVE_LOOP_TRACE_LIMIT) liveLoopTrace.shift();
 }
 
 function projectMetadata() { try { return JSON.parse(fs.readFileSync(projectMetaFile, 'utf8')); } catch { return { version: 1, projects: {} }; } }
@@ -453,7 +466,11 @@ function recordLiveActivity(agent, source, filename, kind = 'event', size = null
   }
   observeLivePath(agent, candidate);
 }
-function pollLiveFiles() { for (const [file, agent] of liveFiles) observeLivePath(agent, file); }
+function pollLiveFiles() {
+  const startedAt = Date.now(), trackedFiles = liveFiles.size;
+  for (const [file, agent] of liveFiles) observeLivePath(agent, file);
+  recordLiveLoop('live-file-poll', startedAt, { trackedFiles });
+}
 
 function appendClineLifecycleEvent(metadata, kind = 'cline-structured-lifecycle') {
   const now = Date.now();
@@ -586,30 +603,53 @@ function presenceSampler(runtimes = null) {
     }
   });
 }
-let samplePresence = null;
+let samplePresence = null, samplePresenceKey = null, sampleCursorPresence = null, sampleCursorPresenceKey = null;
 let latestPresenceSnapshot = { reliable: false, commands: [], checkedAt: null, reason: 'The local process snapshot has not completed yet.' };
-let latestPresenceAt = 0;
-let presencePollTimer = null;
-let presencePollInFlight = false;
+let latestPresenceAt = 0, latestCursorPresenceSnapshot = { reliable: false, commands: [], checkedAt: null, reason: 'The Cursor process probe has not completed yet.' }, latestCursorPresenceAt = 0;
+let presencePollTimer = null, presencePollSequence = 0, cursorPresencePollSequence = 0;
+let presencePollInFlight = false, cursorPresencePollInFlight = false;
 function pollPresenceSnapshot() {
   if (presencePollInFlight) return;
   presencePollInFlight = true;
+  const sequence = ++presencePollSequence, startedAt = Date.now();
   execFile(processSnapshotCommand(), ['-axo', 'comm='], { encoding: 'utf8', timeout: 3_000, maxBuffer: 512 * 1024, stdio: ['ignore', 'pipe', 'ignore'] }, (error, stdout) => {
     presencePollInFlight = false;
+    const durationMs = Date.now() - startedAt;
     if (error) {
       const code = String(error.code || 'PROCESS_SNAPSHOT_ERROR').replace(/[^A-Z0-9_-]/gi, '').slice(0, 48);
       latestPresenceSnapshot = { reliable: false, commands: [], checkedAt: new Date().toISOString(), reason: `The local process snapshot was unavailable (${code}).` };
+      recordPresenceProbe({ timestamp: new Date().toISOString(), sequence, target: 'declared-runtime-executables', durationMs, probe: error.killed ? 'timeout' : 'failed', errorCode: code, cursorMainMatched: null });
       return;
     }
     latestPresenceSnapshot = processSnapshotFromOutput(stdout);
     latestPresenceAt = Date.now();
+    recordPresenceProbe({ timestamp: new Date().toISOString(), sequence, target: 'declared-runtime-executables', durationMs, probe: 'success', errorCode: null, cursorMainMatched: String(stdout || '').split(/\r?\n/).some((value) => value.trim().endsWith('/Cursor.app/Contents/MacOS/Cursor')) });
+  });
+}
+function pollCursorPresenceSnapshot() {
+  if (cursorPresencePollInFlight) return;
+  cursorPresencePollInFlight = true;
+  const sequence = ++cursorPresencePollSequence, startedAt = Date.now(), probe = processNameProbeCommand('Cursor');
+  execFile(probe.command, probe.args, { encoding: 'utf8', timeout: 750, maxBuffer: 1024, stdio: ['ignore', 'pipe', 'ignore'] }, (error) => {
+    cursorPresencePollInFlight = false;
+    latestCursorPresenceSnapshot = processNameSnapshot('cursor', { error });
+    if (latestCursorPresenceSnapshot.reliable) latestCursorPresenceAt = Date.now();
+    const absent = Number(error?.code) === 1;
+    const code = error && !absent ? String(error.code || 'PROCESS_PROBE_ERROR').replace(/[^A-Z0-9_-]/gi, '').slice(0, 48) : null;
+    recordPresenceProbe({ timestamp: new Date().toISOString(), sequence, target: 'cursor-main-executable', durationMs: Date.now() - startedAt, probe: !error ? 'success' : absent ? 'absent' : error.killed ? 'timeout' : 'failed', errorCode: code, cursorMainMatched: !error });
   });
 }
 function startPresencePolling() {
   pollPresenceSnapshot();
+  pollCursorPresenceSnapshot();
   if (presencePollTimer) clearInterval(presencePollTimer);
-  presencePollTimer = setInterval(pollPresenceSnapshot, PRESENCE_POLL_MS);
+  presencePollTimer = setInterval(() => { pollPresenceSnapshot(); pollCursorPresenceSnapshot(); }, PRESENCE_POLL_MS);
   presencePollTimer.unref?.();
+}
+function sampleRuntimeResources() {
+  const startedAt = Date.now();
+  latestSystem = runtimeResourceSampler ? runtimeResourceSampler() : sampleSystem?.() || null;
+  recordLiveLoop('resource-sample', startedAt);
 }
 function liveState() {
   const current = applyCachedViewMeta() || index();
@@ -632,11 +672,28 @@ function liveState() {
   // required Idle lane. Cline remains gated by its own discovery state.
   const knownRuntimes = new Set((current.runtimeCatalog?.liveRuntimes || []).map((runtime) => runtime.id));
   const runtimes = provisionalCatalog.runtimes.filter((runtime) => runtime.liveCapable && (knownRuntimes.has(runtime.id) || current.sourceStates?.[runtime.sourceKey]?.installed?.state === 'detected' || liveAgents.includes(runtime.agent)));
-  if (!samplePresence || samplePresence.runtimes !== runtimes) {
+  const nextPresenceSamplerKey = presenceSamplerKey(runtimes);
+  if (!samplePresence || samplePresenceKey !== nextPresenceSamplerKey) {
     samplePresence = presenceSampler(runtimes);
-    samplePresence.runtimes = runtimes;
+    samplePresenceKey = nextPresenceSamplerKey;
   }
-  const presenceStates = samplePresence();
+  const genericPresenceStates = samplePresence();
+  const cursorRuntime = runtimes.find((runtime) => runtime.agent === 'Cursor');
+  if (cursorRuntime) {
+    const nextCursorPresenceSamplerKey = presenceSamplerKey([cursorRuntime]);
+    if (!sampleCursorPresence || sampleCursorPresenceKey !== nextCursorPresenceSamplerKey) {
+      sampleCursorPresence = createPresenceSampler({
+        runtimes: [cursorRuntime],
+        snapshot: () => {
+          if (!latestCursorPresenceAt || Date.now() - latestCursorPresenceAt > PRESENCE_POLL_MS * 2) return { ...latestCursorPresenceSnapshot, reliable: false };
+          return latestCursorPresenceSnapshot;
+        }
+      });
+      sampleCursorPresenceKey = nextCursorPresenceSamplerKey;
+    }
+  }
+  const cursorPresence = sampleCursorPresence?.() || {};
+  const presenceStates = { ...genericPresenceStates, ...cursorPresence };
   const liveCatalog = runtimeCatalogForLiveEvidence(current.runtimeCatalog || {}, manifests, liveAgents, { Cline: clineHostForInstallation(clineInstallationForLive()) || 'Cursor', 'Hermes Agent': hermesInProgress?.host || 'Hermes Agent' }, { Cline: clineInProgress || {}, 'Hermes Agent': hermesInProgress || {} }, { presentAgents: Object.entries(presenceStates).filter(([, presence]) => presence?.state === 'present').map(([agent]) => agent) });
   const snapshot = liveStateSnapshot({ system: latestSystem, events: liveActivityEvents, capacity: latestCapacity, runtimeCatalog: liveCatalog });
   // Attention is an in-memory current condition, not durable history. A
@@ -660,7 +717,7 @@ function liveState() {
   }
   snapshot.presence = presenceStates;
   snapshot.agents = detectAgents();
-  snapshot.liveDiagnostics = { bounded: true, privacy: 'Structural lifecycle metadata only; no prompts, responses, code, paths, tool payloads, or credentials.', decisions: liveDecisionTrace.slice(-80) };
+  snapshot.liveDiagnostics = { bounded: true, privacy: 'Structural lifecycle metadata only; no prompts, responses, code, paths, tool payloads, or credentials.', decisions: liveDecisionTrace.slice(-80), presenceProbes: presenceProbeTrace.slice(-80), loopTimings: liveLoopTrace.slice(-80) };
   return snapshot;
 }
 function json(res, value, status = 200) {
@@ -844,7 +901,9 @@ export function serve({ port = 4177 } = {}) {
         res.setHeader('Cache-Control', 'private, max-age=0, must-revalidate');
         if (req.headers['if-none-match'] === etag) { res.statusCode = 304; return res.end(); }
       }
-      return jsonText(res, cachedViewJson());
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      return writeChunkedText(res, cachedViewJson());
     }
     if (url.pathname === '/api/efficiency' && req.method === 'GET') return json(res, efficiencySnapshot(index().efficiency?.foundation || {}, { period: url.searchParams.get('period') || '7d', remoteAnalytics: openRouter.state().cached }));
     if (url.pathname === '/api/openrouter' && req.method === 'GET') return json(res, openRouter.state());
@@ -1075,11 +1134,11 @@ export function serve({ port = 4177 } = {}) {
       // the UI is established; no health check should wait on a host command.
       if (!sampleSystem) sampleSystem = createSystemSampler({ workingMemory: () => null });
       if (!runtimeResourceSampler) runtimeResourceSampler = createRuntimeResourceSampler({ baseSampler: sampleSystem, root: path.parse(root).root });
-      latestSystem ||= runtimeResourceSampler();
+      if (!latestSystem) sampleRuntimeResources();
       watcherProcess = startLiveWatcherWorker(sources, rediscovery, lifecycle);
       startPresencePolling();
       rediscovery.start();
-      setInterval(() => { latestSystem = runtimeResourceSampler ? runtimeResourceSampler() : sampleSystem(); }, 2_000).unref();
+      setInterval(sampleRuntimeResources, 2_000).unref();
       setInterval(pollLiveFiles, 1_500).unref();
       // Cline's SDK session database carries the current task heartbeat even
       // when its JSON manifest is quiet. Keep this narrow poll independent of

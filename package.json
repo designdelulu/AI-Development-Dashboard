@@ -18,7 +18,7 @@
     "start": "node src/cli.js serve",
     "dashboard": "node src/cli.js",
     "setup": "node scripts/setup.mjs",
-    "test": "node --test test/*.test.js"
+    "test": "node --test --test-concurrency=1 test/*.test.js"
   },
   "bin": {
     "ai-dashboard": "bin/ai-dashboard.js"

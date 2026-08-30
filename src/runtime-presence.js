@@ -17,6 +17,21 @@ export function processSnapshotCommand(platform = process.platform) {
   return platform === 'darwin' ? '/bin/ps' : 'ps';
 }
 
+export function processNameProbeCommand(name, platform = process.platform) {
+  if (platform === 'darwin') return { command: '/usr/bin/pgrep', args: ['-ix', String(name)] };
+  return { command: 'pgrep', args: ['-ix', String(name)] };
+}
+
+// pgrep's exit status 1 is a successful observation that no matching main
+// executable exists. Any other error is an indeterminate probe, never Closed.
+export function processNameSnapshot(name, { error = null, now = Date.now } = {}) {
+  const checkedAt = new Date(now()).toISOString();
+  if (!error) return { reliable: true, commands: [String(name).toLowerCase()], checkedAt, reason: null };
+  if (Number(error.code) === 1) return { reliable: true, commands: [], checkedAt, reason: null };
+  const code = String(error.killed ? 'PROCESS_PROBE_TIMEOUT' : (error.code || 'PROCESS_PROBE_ERROR')).replace(/[^A-Z0-9_-]/gi, '').slice(0, 48);
+  return { reliable: false, commands: [], checkedAt, reason: `The local process probe was unavailable (${code}).` };
+}
+
 const basename = (value = '') => String(value).split('/').at(-1).toLowerCase();
 
 export function processSnapshotFromOutput(output, { platform = process.platform, now = Date.now } = {}) {
@@ -53,6 +68,17 @@ function runtimePresence(runtime = {}, snapshot = {}) {
 
 export function runtimePresenceStates(runtimes = [], snapshot = processSnapshot()) {
   return Object.fromEntries((runtimes || []).filter((runtime) => runtime?.liveCapable).map((runtime) => [runtime.agent, runtimePresence(runtime, snapshot)]));
+}
+
+// Callers rebuild runtime arrays as discovery metadata refreshes. Preserve a
+// sampler's bounded stale-good cache when the executable-matching contract is
+// unchanged; array identity is not a lifecycle signal.
+export function presenceSamplerKey(runtimes = []) {
+  return JSON.stringify((runtimes || []).filter((runtime) => runtime?.liveCapable).map((runtime) => ({
+    id: runtime.id || null,
+    agent: runtime.agent || null,
+    presence: runtime.presence || null
+  })).sort((a, b) => `${a.id}|${a.agent}`.localeCompare(`${b.id}|${b.agent}`)));
 }
 
 export function createPresenceSampler({ runtimes = [], pollMs = PRESENCE_POLL_MS, staleGoodMs = PRESENCE_STALE_GOOD_MS, now = Date.now, snapshot = () => processSnapshot({ now }) } = {}) {
