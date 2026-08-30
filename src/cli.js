@@ -9,6 +9,7 @@ import { createSystemSampler, liveStateSnapshot, sessionFileSignal } from './act
 import { readPlanCapacity } from './capacity.js';
 import { shareableStack, manifest, privateInventory, publicMetricOptions, createSnapshot, shareCardSvg, setupPrompt } from './sharing.js';
 import { claudeLiveDecision, cursorLiveDecision, isCursorTranscriptPath, isCursorUnsupportedSurfacePath, isLiveActivityPath } from './live-files.js';
+import { CursorHookTracker, cursorHookInstallationStatus, cursorHookQueueSummary, installCursorHooks, readCursorHookRecords, removeCursorHooks } from './cursor-hooks.js';
 import { structuredAttentionFromFile } from './live-attention.js';
 import { clineSnapshotBootstrapEligible, ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, CursorUnsupportedSurfaceTracker, cursorTranscriptBootstrapEligible, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
 import { CLINE_DB_LIVE_MAX_AGE_MS, clineDbActiveEligible, clineHostForInstallation, clineHostForPath, clineInstallation, clineLiveDecision, readClineSessionDbMetadata, readClineSessionMetadata } from './cline.js';
@@ -58,9 +59,12 @@ const liveActivityEvents = [], liveFileSizes = new Map(), liveFiles = new Map(),
 const claudeToolTracker = new ClaudeToolTracker();
 const cursorTurnTracker = new CursorTurnTracker();
 const cursorUnsupportedSurfaceTracker = new CursorUnsupportedSurfaceTracker();
+const cursorHookTracker = new CursorHookTracker();
 const clineSessionTracker = new ClineSessionTracker();
 let liveClineInstallation = null, liveClineInstallationAt = 0, clineDbPollInFlight = false, clineDbPollTimer = null;
 let liveHermesInstallation = null, liveHermesInstallationAt = 0, hermesLivePollInFlight = false, hermesLivePollTimer = null, hermesLiveTurns = [];
+const cursorHookQueueFile = path.join(dataDir, 'cursor-hooks.jsonl');
+let cursorHookQueueSize = 0, cursorHookQueueCarry = '', cursorHookPollTimer = null, cursorHookStatus = null;
 const liveDecisionTrace = [], liveDecisionKeys = new Map();
 const LIVE_DECISION_TRACE_LIMIT = 120;
 const presenceProbeTrace = [];
@@ -486,6 +490,41 @@ function pollLiveFiles() {
   recordLiveLoop('live-file-poll', startedAt, { trackedFiles });
 }
 
+// Cursor Hooks write only a tiny bridge-generated record. The bridge drains
+// Cursor's JSON stdin without parsing it; this reader accepts only that exact
+// allowlisted record shape and never opens a transcript or terminal payload.
+function pollCursorHookQueue() {
+  const startedAt = Date.now();
+  cursorHookStatus = cursorHookInstallationStatus({ home: paths.home, dataDir });
+  let stat = null;
+  try { stat = fs.statSync(cursorHookQueueFile); } catch {}
+  if (!stat) { recordLiveLoop('cursor-hook-poll', startedAt, { records: 0 }); return; }
+  if (stat.size < cursorHookQueueSize) { cursorHookQueueSize = 0; cursorHookQueueCarry = ''; }
+  const parsed = readCursorHookRecords(cursorHookQueueFile, cursorHookQueueSize, cursorHookQueueCarry);
+  cursorHookQueueSize = parsed.size;
+  cursorHookQueueCarry = parsed.carry;
+  let accepted = 0;
+  for (const record of parsed.records) {
+    const lifecycle = cursorHookTracker.observe(record, Date.now());
+    if (!lifecycle.accepted) continue;
+    accepted += 1;
+    if (lifecycle.completed) cursorTurnTracker.clear();
+    recordLiveDecision({
+      adapter: 'cursor', host: 'Cursor', rawLifecycle: `hook-${lifecycle.event}`,
+      lastStructuralActivityAt: new Date(lifecycle.at).toISOString(),
+      normalizedState: lifecycle.active ? 'Working' : (lifecycle.completed ? 'Recently Active' : 'Idle'),
+      reason: lifecycle.completed ? 'hook-stop' : (lifecycle.started ? 'hook-turn-start' : 'hook-activity')
+    });
+    if (lifecycle.pulse) {
+      const signal = sessionFileSignal({ agent: 'Cursor', host: 'Cursor', timestamp: lifecycle.at, kind: `cursor-hook-${lifecycle.event}`, previousSize: 0, size: 0 });
+      if (signal) liveActivityEvents.push(signal);
+    }
+  }
+  const cutoff = Date.now() - 60_000;
+  while (liveActivityEvents[0] && new Date(liveActivityEvents[0].timestamp).getTime() < cutoff) liveActivityEvents.shift();
+  recordLiveLoop('cursor-hook-poll', startedAt, { records: accepted });
+}
+
 function appendClineLifecycleEvent(metadata, kind = 'cline-structured-lifecycle') {
   const now = Date.now();
   const recent = liveActivityEvents.at(-1);
@@ -668,7 +707,9 @@ function sampleRuntimeResources() {
 function liveState() {
   const current = applyCachedViewMeta() || index();
   const claudeInProgress = claudeToolTracker.signal();
-  const cursorInProgress = cursorTurnTracker.signal();
+  const cursorHookInProgress = cursorHookTracker.signal();
+  const cursorInProgress = cursorHookInProgress || cursorTurnTracker.signal();
+  const cursorHookCompletion = cursorHookTracker.completion();
   const cursorTelemetryUnavailable = cursorUnsupportedSurfaceTracker.signal();
   const clineInProgress = clineSessionTracker.signal();
   const activeHermesTurns = hermesLiveTurns.filter((turn) => new Date(turn.leaseUntil).getTime() > Date.now());
@@ -721,12 +762,13 @@ function liveState() {
       if (agent === 'Cursor') {
         cursorTurnTracker.clear();
         cursorUnsupportedSurfaceTracker.clear();
+        cursorHookTracker.clear();
       }
       if (agent === 'Cline') clineSessionTracker.clear();
       if (agent === 'Hermes Agent') hermesLiveTurns = [];
     }
   }
-  snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(current, liveCatalog), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: { ...(claudeInProgress ? { Claude: claudeInProgress } : {}), ...(cursorInProgress ? { Cursor: cursorInProgress } : {}), ...(clineInProgress ? { Cline: clineInProgress } : {}), ...(hermesInProgress ? { 'Hermes Agent': hermesInProgress } : {}) }, telemetryUnavailableSignals: { ...(cursorTelemetryUnavailable ? { Cursor: cursorTelemetryUnavailable } : {}) }, presenceStates });
+  snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(current, liveCatalog), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: { ...(claudeInProgress ? { Claude: claudeInProgress } : {}), ...(cursorInProgress ? { Cursor: cursorInProgress } : {}), ...(clineInProgress ? { Cline: clineInProgress } : {}), ...(hermesInProgress ? { 'Hermes Agent': hermesInProgress } : {}) }, completionSignals: { ...(cursorHookCompletion ? { Cursor: cursorHookCompletion } : {}) }, telemetryUnavailableSignals: { ...(cursorTelemetryUnavailable ? { Cursor: cursorTelemetryUnavailable } : {}) }, presenceStates });
   for (const agent of ['Cursor', 'Hermes Agent']) {
     const state = snapshot.operator.liveStates?.[agent];
     if (!state) continue;
@@ -736,7 +778,7 @@ function liveState() {
   }
   snapshot.presence = presenceStates;
   snapshot.agents = detectAgents();
-  snapshot.liveDiagnostics = { bounded: true, privacy: 'Structural lifecycle metadata only; no prompts, responses, code, paths, tool payloads, or credentials.', decisions: liveDecisionTrace.slice(-80), presenceProbes: presenceProbeTrace.slice(-80), loopTimings: liveLoopTrace.slice(-80) };
+  snapshot.liveDiagnostics = { bounded: true, privacy: 'Structural lifecycle metadata only; no prompts, responses, code, paths, tool payloads, or credentials.', cursorHooks: { state: cursorHookStatus?.state || 'available', configured: Boolean(cursorHookStatus?.configured), bridge: cursorHookStatus?.bridge || 'missing', dashboardEntries: Number(cursorHookStatus?.dashboardEntries) || 0, active: Boolean(cursorHookInProgress), lastObservedAt: cursorHookTracker.lastEventAt ? new Date(cursorHookTracker.lastEventAt).toISOString() : null }, decisions: liveDecisionTrace.slice(-80), presenceProbes: presenceProbeTrace.slice(-80), loopTimings: liveLoopTrace.slice(-80) };
   return snapshot;
 }
 function json(res, value, status = 200) {
@@ -1091,6 +1133,7 @@ export function serve({ port = 4177 } = {}) {
     if (watcherProcess) { try { watcherProcess.kill('SIGTERM'); } catch {} watcherProcess = null; }
     if (capacityProcess && capacityProcess.exitCode == null) { try { capacityProcess.kill('SIGTERM'); } catch {} capacityProcess = null; }
     if (presencePollTimer) { clearInterval(presencePollTimer); presencePollTimer = null; }
+    if (cursorHookPollTimer) { clearInterval(cursorHookPollTimer); cursorHookPollTimer = null; }
     if (clineDbPollTimer) { clearInterval(clineDbPollTimer); clineDbPollTimer = null; }
     if (hermesLivePollTimer) { clearInterval(hermesLivePollTimer); hermesLivePollTimer = null; }
     if (backgroundScan && backgroundScan.exitCode == null) { try { backgroundScan.kill('SIGTERM'); } catch {} }
@@ -1159,6 +1202,9 @@ export function serve({ port = 4177 } = {}) {
       rediscovery.start();
       setInterval(sampleRuntimeResources, 2_000).unref();
       setInterval(pollLiveFiles, 1_500).unref();
+      pollCursorHookQueue();
+      cursorHookPollTimer = setInterval(pollCursorHookQueue, 500);
+      cursorHookPollTimer.unref?.();
       // Cline's SDK session database carries the current task heartbeat even
       // when its JSON manifest is quiet. Keep this narrow poll independent of
       // discovery/index refreshes and off the request path.
@@ -1206,7 +1252,7 @@ export async function main(args = process.argv.slice(2)) {
   const requestedPort = argValue(args, '--port', '4177');
   const port = Number.isInteger(Number(requestedPort)) && Number(requestedPort) >= 0 ? Number(requestedPort) : 4177;
   if (['help', '--help', '-h'].includes(command)) {
-    console.log('AI Development Dashboard\n\nUsage: ai-dashboard <command>\n\nCommands:\n  open [--port N]  Start the owned local service and open the dashboard\n  status           Show owned service status\n  stop             Stop only the owned dashboard service\n  update           Safely update dashboard software (not AI tools/models)\n  report-bug       Save a privacy-safe local bug report bundle\n  doctor           Check local lifecycle health\n  scan             Run one local index scan\n  serve            Run the local server in the foreground');
+    console.log('AI Development Dashboard\n\nUsage: ai-dashboard <command>\n\nCommands:\n  open [--port N]  Start the owned local service and open the dashboard\n  status           Show owned service status\n  stop             Stop only the owned dashboard service\n  cursor-hooks     Inspect or explicitly manage optional Cursor hook telemetry\n  update           Safely update dashboard software (not AI tools/models)\n  report-bug       Save a privacy-safe local bug report bundle\n  doctor           Check local lifecycle health\n  scan             Run one local index scan\n  serve            Run the local server in the foreground');
     return 0;
   }
   if (command === 'report-bug') {
@@ -1229,6 +1275,16 @@ export async function main(args = process.argv.slice(2)) {
     else if (configuredReportEndpoint()) console.log('A report endpoint is configured, but nothing was sent. Re-run with --send to submit explicitly.');
     else console.log('No report endpoint is configured. Attach this local bundle to your support request manually.');
     return 0;
+  }
+  if (command === 'cursor-hooks') {
+    const action = args[1] || 'status';
+    if (!['status', 'install', 'remove'].includes(action)) { console.error('Usage: ai-dashboard cursor-hooks [status|install|remove] [--yes]'); return 1; }
+    const options = { home: paths.home, dataDir, confirm: args.includes('--yes') };
+    const result = action === 'status' ? { ...cursorHookInstallationStatus(options), ...cursorHookQueueSummary(path.join(dataDir, 'cursor-hooks.jsonl')) } : action === 'install' ? installCursorHooks(options) : removeCursorHooks(options);
+    // Deliberately omit private local paths and any unrelated user hook data.
+    const safe = (({ configFile, scriptFile, queueFile, backupFile, ...value }) => value)(result);
+    console.log(JSON.stringify(safe, null, 2));
+    return result.state === 'refused' ? 1 : 0;
   }
   if (command === 'scan') { const data = refresh(); console.log(`Indexed ${data.projects.length} projects, ${data.sessions.length} sessions, ${data.capabilities.length} capabilities.`); return 0; }
   if (command === 'serve') { serve({ port }); return 0; }
@@ -1309,6 +1365,6 @@ export async function main(args = process.argv.slice(2)) {
     console.log(`Updated successfully. ${result.previousHead?.slice(0, 8) || 'previous'} → ${result.head?.slice(0, 8) || 'current'}`); return 0;
   }
   if (command === 'uninstall') { console.log(JSON.stringify({ state: 'preview', package: 'Use your npm package manager to remove the package.', retainedData: dataDir, autostart: 'No job is installed by this Phase 1 foundation.' }, null, 2)); return 0; }
-  console.error('Usage: ai-dashboard [serve|scan|setup|start|open|status|stop|doctor|report-bug|autostart|update|uninstall]'); return 1;
+  console.error('Usage: ai-dashboard [serve|scan|setup|start|open|status|stop|cursor-hooks|doctor|report-bug|autostart|update|uninstall]'); return 1;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) main().then((code) => { if (code) process.exitCode = code; });

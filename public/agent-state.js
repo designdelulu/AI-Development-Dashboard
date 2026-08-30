@@ -16,7 +16,7 @@ const currentAttention=(value,now,maxAgeMs)=>{
   return value?.unresolved===true&&at!=null&&at<=now&&now-at<=maxAgeMs;
 };
 
-export function classifyAgentState(events,agent,now=Date.now(),{sourceKnown=true,workingGraceMs=WORKING_GRACE_MS,recentActiveWindowMs=RECENT_ACTIVE_WINDOW_MS,attention=null,attentionMaxAgeMs=ATTENTION_MAX_AGE_MS,inProgress=null,telemetryUnavailable=null,presence=null}={}){
+export function classifyAgentState(events,agent,now=Date.now(),{sourceKnown=true,workingGraceMs=WORKING_GRACE_MS,recentActiveWindowMs=RECENT_ACTIVE_WINDOW_MS,attention=null,attentionMaxAgeMs=ATTENTION_MAX_AGE_MS,inProgress=null,completion=null,telemetryUnavailable=null,presence=null}={}){
   if(!sourceKnown)return {agent,state:AGENT_STATES.unknown,since:now,lastEventAt:null,confidence:'Unavailable',reason:'No supported local activity source is available.'};
   const times=events.filter(event=>event.agent===agent).map(event=>timestamp(event.timestamp)).filter(time=>time!=null&&time<=now).sort((a,b)=>a-b),lastEventAt=times.at(-1)||null;
   if(presence?.state==='closed')return {agent,state:AGENT_STATES.closed,since:timestamp(presence.checkedAt)??now,lastEventAt,confidence:'Process presence',reason:'The declared local runtime process is not present.'};
@@ -25,6 +25,8 @@ export function classifyAgentState(events,agent,now=Date.now(),{sourceKnown=true
   // Current validated work always outranks an older attention request. This
   // prevents a stale Needs You marker from masking a resumed operation.
   if(inProgress?.active===true&&inProgressAt!=null&&inProgressAt<=now)return {agent,state:AGENT_STATES.working,since:inProgressAt,lastEventAt,confidence:inProgress.confidence||'Structured',reason:inProgress.reason||'A structurally observed local operation remains in progress.'};
+  const completionAt=timestamp(completion?.at);
+  if(completionAt!=null&&completionAt<=now&&now-completionAt<=recentActiveWindowMs)return {agent,state:AGENT_STATES.recent,since:completionAt,lastEventAt,confidence:completion.confidence||'Structured',reason:completion.reason||'A structured local record says the current operation completed.'};
   const unavailableAt=timestamp(telemetryUnavailable?.since);
   if(telemetryUnavailable?.active===true&&unavailableAt!=null&&unavailableAt<=now)return {agent,state:AGENT_STATES.telemetryUnavailable,since:unavailableAt,lastEventAt,confidence:telemetryUnavailable.confidence||'Unsupported surface',reason:telemetryUnavailable.reason||'The current local AI surface cannot be interpreted safely.'};
   const attentionAt=timestamp(attention?.at);

@@ -1,5 +1,5 @@
 import { overviewCopy, sessionOverviewCopy } from '/overview-copy.js';
-import { boundedSignalEvents, signalBarSample } from '/signal-field.js';
+import { boundedSignalEvents, mergeMonitorEvents, signalBarSample } from '/signal-field.js';
 import { advanceTimingRecord, classifyAgentState, createTimingRecord } from '/agent-state.js';
 import { defaultShareMetrics, SHARE_FORMATS, updateSharePreferences } from '/share-controls.js';
 import { resumeContextPresentation } from '/resume-ui.js';
@@ -41,7 +41,7 @@ const clock=d=>new Intl.DateTimeFormat(undefined,{hour:'2-digit',minute:'2-digit
 const resetTime=d=>{const date=new Date(d),day=new Intl.DateTimeFormat(undefined,{month:'short',day:'numeric'}).format(date),time=new Intl.DateTimeFormat(undefined,{hour:'numeric',minute:'2-digit'}).format(date);return `${day} · ${time}`};
 function monitorIntensity(events,agent,at){return events.filter(e=>e.agent===agent).reduce((sum,e)=>{const age=at-new Date(e.timestamp).getTime(),weight=e.kind?1+Math.min(2,Math.log2((Number(e.bytesAdded)||0)/512+1)):1+Math.min(2,Math.log2((Number(e.tools)||0)+1));return age>=0&&age<=monitorDecay*7?sum+weight*Math.exp(-age/monitorDecay):sum},0)}
 function stopMonitor(){if(monitorFrame)cancelAnimationFrame(monitorFrame);if(monitorTimer)clearTimeout(monitorTimer);monitorFrame=null;monitorTimer=null}
-function monitorEvents(){return [...(data?.summary?.monitorEvents||[]),...liveActivity].filter((event,index,events)=>events.findIndex(other=>other.timestamp===event.timestamp&&other.agent===event.agent&&other.kind===event.kind)===index)}
+function monitorEvents(){return mergeMonitorEvents(data?.summary?.monitorEvents||[],liveActivity)}
 const duration=milliseconds=>{const seconds=Math.max(0,Math.floor(milliseconds/1000));if(seconds<60)return `${seconds}s`;const minutes=Math.floor(seconds/60),rest=seconds%60;if(minutes<60)return `${minutes}m ${rest}s`;const hours=Math.floor(minutes/60);return `${hours}h ${minutes%60}m`};
 function monitorStateFor(laneInfo,events,now){const agent=laneInfo.eventAgent||laneInfo.id;return operator?.liveStates?.[agent]||operator?.liveStates?.[laneInfo.agent]||classifyAgentState(events,agent,now,{sourceKnown:Boolean(data?.summary?.agents?.includes(laneInfo.agent)||data?.summary?.agents?.includes(agent)||data?.summary?.hosts?.includes(laneInfo.host)),presence:operator?.presenceStates?.[agent]||operator?.presenceStates?.[laneInfo.agent]||null})}
 function monitorStateCopy(state,now,since){if(state.state==='Closed'||state.state==='Idle'||state.state==='Presence Unknown'||state.state==='Live telemetry unavailable')return state.state;if(state.state==='Recently Active')return `Recent · ${duration(now-since)}`;return `${state.state} · ${duration(now-since)}`}

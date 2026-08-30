@@ -30,6 +30,18 @@ export function boundedSignalEvents(events,now=Date.now(),{windowMs=60_000,limit
   return events.filter(event=>{const time=at(event.timestamp);return time!=null&&time>=cutoff&&time<=now}).slice(-limit);
 }
 
+// Live snapshots replace their own event list on every poll, so repeated live
+// events in the same second are distinct observations and must survive. Only
+// suppress a live event when an identical historical/base event already owns
+// that key; this keeps Cursor hook bursts visible without inventing activity.
+export function mergeMonitorEvents(baseEvents=[],liveEvents=[]){
+  const key=event=>[event?.timestamp,event?.agent,event?.kind].join('|');
+  const base=Array.isArray(baseEvents)?baseEvents:[];
+  const baseKeys=new Set(base.map(key));
+  const live=Array.isArray(liveEvents)?liveEvents:[];
+  return [...base,...live.filter(event=>!baseKeys.has(key(event)))];
+}
+
 export function signalBarSample(events,agent,sampleAt,index,{reducedMotion=false,carrier=true}={}){
   const realEnergy=signalEnergy(events,agent,sampleAt),visualEnergy=Math.tanh(realEnergy*.52),agentPhase=brandPhase(agent);
   const baseline=carrier?(reducedMotion?.002:.003+.006*(.5+.5*Math.sin(sampleAt/620+agentPhase+index*.19))):0;

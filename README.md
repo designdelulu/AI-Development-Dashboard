@@ -63,6 +63,7 @@ ai-dashboard doctor    # run read-only lifecycle diagnostics
 ai-dashboard stop      # stop only the owned dashboard service
 ai-dashboard update    # update AI Development Dashboard itself
 ai-dashboard report-bug # save a privacy-safe local report bundle
+ai-dashboard cursor-hooks status # inspect optional high-fidelity Cursor telemetry
 ```
 
 Run `ai-dashboard --help` for the complete lifecycle command list.
@@ -109,6 +110,22 @@ OpenRouter is a connected **gateway/account telemetry source**, not a Live Agent
 
 Cline can run as an extension inside Cursor. In that configuration the normalized path is `Cline (agent) → Cursor (host) → OpenRouter (gateway) → underlying provider → exact model`, for example `Cline → Cursor → OpenRouter → Moonshot → Kimi`. Cline is not the only possible OpenRouter host: Claude Code, Codex, and future supported hosts may use the same gateway independently. The adapter discovers the real Cursor extension without requiring vanilla VS Code or a Cline CLI. Cline's inference key stays inside Cline and is never read or copied by the dashboard. The dashboard's separate `OPENROUTER_MANAGEMENT_KEY` is only for optional account analytics. A configured Cline model is not historical usage until a session artifact records observed work; remote OpenRouter rows remain host/project Unknown unless a deterministic correlation identifier is available.
 
+### Cursor high-fidelity hooks (optional)
+
+Cursor’s basic telemetry works automatically only when safe local structural evidence exists. For supported Cursor Agent workflows, you can explicitly enable higher-fidelity local activity using Cursor’s official command hooks:
+
+```bash
+ai-dashboard cursor-hooks status
+ai-dashboard cursor-hooks install       # preview only
+ai-dashboard cursor-hooks install --yes # explicitly install
+ai-dashboard cursor-hooks remove        # preview only
+ai-dashboard cursor-hooks remove --yes  # explicitly remove Dashboard entries
+```
+
+The installer preserves unrelated user hooks in `~/.cursor/hooks.json`, adds only namespaced Dashboard commands, creates a timestamped backup before a write, and never changes project, team, enterprise, Cline, or Claude hook configuration. It installs a small local bridge under `~/.cursor/hooks/`; Cursor reloads user hooks automatically.
+
+Cursor passes JSON hook input to the bridge process. The bridge **does not parse or persist that input**: it drains stdin and records only its configured official event name and a timestamp in a bounded local queue. No prompts, thoughts, assistant responses, source code, file paths, terminal/shell commands, tool arguments/results, MCP payloads, email, credentials, or project paths are read or stored. `beforeSubmitPrompt` is the preferred turn start; a verified thought/tool/response callback also starts Working when Cursor omits that prompt callback for an Agent surface. Thought/tool/edit/shell/MCP/response hooks create real activity pulses; `stop` ends the turn as Recently Active. Long quiet model waits remain Working until `stop` or bounded orphan recovery. Without this opt-in integration, the existing privacy-safe transcript and presence fallback remains unchanged.
+
 ### Hermes Agent through OpenRouter (optional local agent)
 
 Hermes is discovered from its own local installation and uses the normalized path `Hermes Agent (agent) → observed Hermes surface (host) → OpenRouter (gateway) → underlying provider → exact model`. A configured model is shown as configuration only; an observed Hermes session is required before it appears as historical model/token usage. The adapter reads a small allowlist from Hermes's canonical SQLite store—session lifecycle/route/project metadata and numeric token counters—and its current durable turn leases. It never reads messages, prompts, tool calls/results, memories, SOUL/USER files, `.env`, auth data, logs, or FTS/search tables. A current turn lease is the only Hermes Working signal; an open Desktop/TUI/CLI surface or an active session slot is not enough.
@@ -153,7 +170,7 @@ The dashboard keeps its dark Design Delulu visual system and hot-pink default ac
 
 ## Privacy and security
 
-**Local Core** (scanning, the localhost UI, local rediscovery, and local views) makes no network requests. It derives metadata locally and does not retain prompt bodies, source code, transcript bodies, terminal/test output, tool arguments, browser credentials, or provider keys.
+**Local Core** (scanning, the localhost UI, local rediscovery, and local views) makes no network requests. It derives metadata locally and does not retain prompt bodies, source code, transcript bodies, terminal/test output, tool arguments, browser credentials, or provider keys. Optional Cursor Hooks receive JSON from Cursor at the bridge process, but the bridge drains and discards that stdin without parsing it; its bounded queue contains only the hook event name, timestamp, source marker, and schema version.
 
 **Connected Services** are disabled by default. They make explicitly authorized requests only to the selected provider. OpenRouter is the current connected integration; it never receives prompts, code, or transcripts from the dashboard.
 
