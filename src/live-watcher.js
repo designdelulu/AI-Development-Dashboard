@@ -13,7 +13,7 @@ const entries = (() => {
 const ignored = /(?:^|[\\/])(?:canvases|mcps|node_modules|\.git|\.dashboard-data|ai-dashboard)(?:[\\/]|$)/i;
 const liveFile = (agent, file) => {
   if (!agent || ignored.test(file)) return false;
-  if (agent === 'Cursor') return /\/agent-transcripts\/.*\.jsonl$/i.test(file) || /\/agent-tools\/[^/]+$/i.test(file);
+  if (agent === 'Cursor') return /\/agent-transcripts\/.*\.jsonl$/i.test(file) || /\/agent-tools\/[^/]+$/i.test(file) || /\/\.cursor\/projects\/[^/]+\/terminals\/[^/]+\.txt$/i.test(file);
   if (agent === 'Cline') return /\/\.cline\/data\/sessions\/.*\.(?:json|jsonl)$/i.test(file) && !/sessions\.db|\.compaction\.json|\.messages\.json$/i.test(file);
   return /\.jsonl$/i.test(file);
 };

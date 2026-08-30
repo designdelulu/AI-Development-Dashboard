@@ -8,9 +8,9 @@ import { defaultAdapterRegistry, defaultSources, derive, scan, applyProjectMetad
 import { createSystemSampler, liveStateSnapshot, sessionFileSignal } from './activity.js';
 import { readPlanCapacity } from './capacity.js';
 import { shareableStack, manifest, privateInventory, publicMetricOptions, createSnapshot, shareCardSvg, setupPrompt } from './sharing.js';
-import { claudeLiveDecision, cursorLiveDecision, isCursorTranscriptPath, isLiveActivityPath } from './live-files.js';
+import { claudeLiveDecision, cursorLiveDecision, isCursorTranscriptPath, isCursorUnsupportedSurfacePath, isLiveActivityPath } from './live-files.js';
 import { structuredAttentionFromFile } from './live-attention.js';
-import { clineSnapshotBootstrapEligible, ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, cursorTranscriptBootstrapEligible, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
+import { clineSnapshotBootstrapEligible, ClaudeToolTracker, ClineSessionTracker, CursorTurnTracker, CursorUnsupportedSurfaceTracker, cursorTranscriptBootstrapEligible, cursorTranscriptHasAgentTurn, readAppendedJsonlRows } from './live-work.js';
 import { CLINE_DB_LIVE_MAX_AGE_MS, clineDbActiveEligible, clineHostForInstallation, clineHostForPath, clineInstallation, clineLiveDecision, readClineSessionDbMetadata, readClineSessionMetadata } from './cline.js';
 import { hermesInstallation, readHermesLiveSnapshotAsync, reconcileHermesLiveTurns } from './hermes.js';
 import { loadSettings, saveSettings } from './config.js';
@@ -57,6 +57,7 @@ let sampleSystem = null, runtimeResourceSampler = null, latestSystem = null, lat
 const liveActivityEvents = [], liveFileSizes = new Map(), liveFiles = new Map(), attentionSignals = new Map(), cursorLiveCarries = new Map(), previewSnapshots = new Map();
 const claudeToolTracker = new ClaudeToolTracker();
 const cursorTurnTracker = new CursorTurnTracker();
+const cursorUnsupportedSurfaceTracker = new CursorUnsupportedSurfaceTracker();
 const clineSessionTracker = new ClineSessionTracker();
 let liveClineInstallation = null, liveClineInstallationAt = 0, clineDbPollInFlight = false, clineDbPollTimer = null;
 let liveHermesInstallation = null, liveHermesInstallationAt = 0, hermesLivePollInFlight = false, hermesLivePollTimer = null, hermesLiveTurns = [];
@@ -378,8 +379,21 @@ function observeLivePath(agent, candidate, { bootstrap = false } = {}) {
     if (!next) {
       liveFiles.delete(candidate);
       liveFileSizes.delete(candidate);
-    cursorLiveCarries.delete(candidate);
+      cursorLiveCarries.delete(candidate);
       cursorTurnTracker.remove(candidate);
+      cursorUnsupportedSurfaceTracker.remove(candidate);
+      return;
+    }
+    if (isCursorUnsupportedSurfacePath(candidate)) {
+      const changed = !previous || previous.size !== next.size || previous.mtimeMs !== next.mtimeMs;
+      liveFiles.set(candidate, agent);
+      liveFileSizes.set(candidate, next);
+      if (changed) cursorUnsupportedSurfaceTracker.observe(candidate, next);
+      if (changed) recordLiveDecision({
+        adapter: 'cursor', sessionHash: traceSessionHash(candidate), host: 'Cursor',
+        rawLifecycle: 'unsupported-surface', lastStructuralActivityAt: new Date(next.mtimeMs).toISOString(),
+        normalizedState: 'Live telemetry unavailable', reason: 'unsupported-surface'
+      });
       return;
     }
     let transcriptHasAgentTurn = false;
@@ -655,6 +669,7 @@ function liveState() {
   const current = applyCachedViewMeta() || index();
   const claudeInProgress = claudeToolTracker.signal();
   const cursorInProgress = cursorTurnTracker.signal();
+  const cursorTelemetryUnavailable = cursorUnsupportedSurfaceTracker.signal();
   const clineInProgress = clineSessionTracker.signal();
   const activeHermesTurns = hermesLiveTurns.filter((turn) => new Date(turn.leaseUntil).getTime() > Date.now());
   const hermesInProgress = activeHermesTurns.length ? { active: true, since: activeHermesTurns.map((turn) => turn.since).filter(Boolean).sort()[0] || new Date().toISOString(), source: 'hermes-durable-turn-lease', confidence: 'Structured', reason: 'Hermes holds a current durable turn lease.', model: activeHermesTurns[0].model || null, provider: activeHermesTurns[0].provider || null, gateway: activeHermesTurns[0].gateway || null, host: activeHermesTurns[0].host || 'Hermes Agent' } : null;
@@ -703,17 +718,21 @@ function liveState() {
     if (presence?.state === 'closed') {
       attentionSignals.delete(agent);
       if (agent === 'Claude') claudeToolTracker.clear();
-      if (agent === 'Cursor') cursorTurnTracker.clear();
+      if (agent === 'Cursor') {
+        cursorTurnTracker.clear();
+        cursorUnsupportedSurfaceTracker.clear();
+      }
       if (agent === 'Cline') clineSessionTracker.clear();
       if (agent === 'Hermes Agent') hermesLiveTurns = [];
     }
   }
-  snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(current, liveCatalog), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: { ...(claudeInProgress ? { Claude: claudeInProgress } : {}), ...(cursorInProgress ? { Cursor: cursorInProgress } : {}), ...(clineInProgress ? { Cline: clineInProgress } : {}), ...(hermesInProgress ? { 'Hermes Agent': hermesInProgress } : {}) }, presenceStates });
+  snapshot.operator = buildOperator(current, liveActivityEvents, latestCapacity, { availableAgents: availableAgentNames(current, liveCatalog), attentionSignals: Object.fromEntries(attentionSignals), inProgressSignals: { ...(claudeInProgress ? { Claude: claudeInProgress } : {}), ...(cursorInProgress ? { Cursor: cursorInProgress } : {}), ...(clineInProgress ? { Cline: clineInProgress } : {}), ...(hermesInProgress ? { 'Hermes Agent': hermesInProgress } : {}) }, telemetryUnavailableSignals: { ...(cursorTelemetryUnavailable ? { Cursor: cursorTelemetryUnavailable } : {}) }, presenceStates });
   for (const agent of ['Cursor', 'Hermes Agent']) {
     const state = snapshot.operator.liveStates?.[agent];
     if (!state) continue;
     const presence = presenceStates[agent]?.state;
-    recordLiveDecision({ adapter: agent === 'Cursor' ? 'cursor' : 'hermes', host: agent === 'Cursor' ? 'Cursor' : hermesInProgress?.host || null, rawLifecycle: state.state === 'Working' ? 'turn-active' : 'no-active-turn', normalizedState: state.state, reason: state.state === 'Working' ? (agent === 'Cursor' ? 'turn-running' : 'lease-active') : (presence === 'present' ? 'runtime-present' : (presence === 'closed' ? 'host-closed' : 'presence-unknown')) });
+    const telemetryUnavailable = state.state === 'Live telemetry unavailable';
+    recordLiveDecision({ adapter: agent === 'Cursor' ? 'cursor' : 'hermes', host: agent === 'Cursor' ? 'Cursor' : hermesInProgress?.host || null, rawLifecycle: state.state === 'Working' ? 'turn-active' : (telemetryUnavailable ? 'unsupported-surface' : 'no-active-turn'), normalizedState: state.state, reason: state.state === 'Working' ? (agent === 'Cursor' ? 'turn-running' : 'lease-active') : (telemetryUnavailable ? 'unsupported-surface' : (presence === 'present' ? 'runtime-present' : (presence === 'closed' ? 'host-closed' : 'presence-unknown'))) });
   }
   snapshot.presence = presenceStates;
   snapshot.agents = detectAgents();

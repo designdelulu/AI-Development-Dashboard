@@ -6,6 +6,7 @@ import { readClineSessionMetadata } from './cline.js';
 const MAX_APPENDED_JSONL_BYTES = 256 * 1024;
 export const CLAUDE_IN_PROGRESS_MAX_MS = 5 * 60_000;
 export const CURSOR_IN_PROGRESS_MAX_MS = 5 * 60_000;
+export const CURSOR_UNSUPPORTED_SURFACE_MAX_MS = 2 * 60_000;
 // Cline's session snapshot is a sparse lifecycle record.  Real observations
 // on the installed Cursor extension showed roughly minute-long gaps between
 // structural writes during a long-running turn, so the lease is measured from
@@ -152,6 +153,28 @@ export class CursorTurnTracker {
       confidence: 'Structured',
       reason: 'A Cursor transcript structurally identifies an AI turn still in progress.'
     };
+  }
+}
+
+// Terminal-backed Cursor surfaces are deliberately not treated as AI work.
+// Their fresh structural change only makes unsupported telemetry visible.
+export class CursorUnsupportedSurfaceTracker {
+  constructor({ maxAgeMs = CURSOR_UNSUPPORTED_SURFACE_MAX_MS } = {}) { this.maxAgeMs = maxAgeMs; this.surfaces = new Map(); }
+  observe(file, stat = null) {
+    const observedAt = Number(stat?.mtimeMs);
+    if (!file || !Number.isFinite(observedAt)) return false;
+    this.surfaces.set(file, observedAt);
+    return true;
+  }
+  remove(file) { this.surfaces.delete(file); }
+  clear() { this.surfaces.clear(); }
+  signal(now = Date.now()) {
+    let since = null;
+    for (const [file, observedAt] of this.surfaces) {
+      if (now - observedAt > this.maxAgeMs) { this.surfaces.delete(file); continue; }
+      since = since == null ? observedAt : Math.min(since, observedAt);
+    }
+    return since == null ? null : { active: true, since: new Date(since).toISOString(), source: 'cursor-unsupported-terminal-surface', confidence: 'Unsupported surface', reason: 'Cursor changed a terminal-backed surface whose AI lifecycle cannot be safely interpreted.' };
   }
 }
 

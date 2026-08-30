@@ -24,6 +24,14 @@ export function isCursorLivePath(file) {
   return false;
 }
 
+// Cursor 3.18.9 can write a terminal-backed surface instead of a structured
+// agent transcript. It proves a Cursor-owned surface changed, but cannot
+// distinguish manual terminal use from built-in AI work.
+export function isCursorUnsupportedSurfacePath(file) {
+  const normal = normalizeLivePath(file);
+  return Boolean(normal) && !IGNORED.test(normal) && /\/\.cursor\/projects\/[^/]+\/terminals\/[^/]+\.txt$/i.test(normal);
+}
+
 export function isCursorTranscriptPath(file) {
   const normal = normalizeLivePath(file);
   return isCursorLivePath(normal) && /\/agent-transcripts\//i.test(normal) && /\.jsonl$/i.test(normal);
@@ -53,7 +61,7 @@ export function isCodexLivePath(file) {
 }
 
 export function isLiveActivityPath(agent, file) {
-  if (agent === 'Cursor') return isCursorLivePath(file);
+  if (agent === 'Cursor') return isCursorLivePath(file) || isCursorUnsupportedSurfacePath(file);
   if (agent === 'Claude') return isClaudeLivePath(file);
   if (agent === 'Codex') return isCodexLivePath(file);
   if (agent === 'Cline') return isClineLivePath(file);

@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { classifyAgentState } from '../public/agent-state.js';
-import { ClaudeToolTracker, CursorTurnTracker, claudeToolLifecycleEvents, cursorTranscriptBootstrapEligible, cursorTranscriptHasAgentTurn, cursorTurnLifecycle } from '../src/live-work.js';
+import { ClaudeToolTracker, CursorTurnTracker, CursorUnsupportedSurfaceTracker, claudeToolLifecycleEvents, cursorTranscriptBootstrapEligible, cursorTranscriptHasAgentTurn, cursorTurnLifecycle } from '../src/live-work.js';
 import { liveStatesFromEvents } from '../src/resume.js';
 
 const tempJsonl = (rows = []) => {
@@ -54,6 +54,18 @@ test('Cursor structured turn stays Working through sparse planning and clears on
   assert.equal(tracker.signal(30_000)?.active, true);
   assert.equal(tracker.observe('/tmp/cursor.jsonl', [{ type: 'turn_ended', status: 'success' }], 31_000).completed, true);
   assert.equal(tracker.signal(31_001), null);
+});
+
+test('Cursor terminal-backed surface reports unavailable telemetry without fabricating AI work', () => {
+  const tracker = new CursorUnsupportedSurfaceTracker({ maxAgeMs: 60_000 });
+  tracker.observe('/tmp/cursor-terminal-surface.txt', { mtimeMs: 1_000 });
+  const unavailable = tracker.signal(30_000);
+  assert.equal(unavailable?.active, true);
+  assert.equal(classifyAgentState([], 'Cursor', 30_000, { presence: { state: 'present' }, telemetryUnavailable: unavailable }).state, 'Live telemetry unavailable');
+  const turn = { active: true, since: new Date(20_000).toISOString(), confidence: 'Structured' };
+  assert.equal(classifyAgentState([], 'Cursor', 30_000, { presence: { state: 'present' }, inProgress: turn, telemetryUnavailable: unavailable }).state, 'Working');
+  assert.equal(tracker.signal(61_001), null);
+  assert.equal(classifyAgentState([], 'Cursor', 61_001, { presence: { state: 'present' }, telemetryUnavailable: tracker.signal(61_001) }).state, 'Idle');
 });
 
 test('Cursor current transcript bootstrap restores a running built-in AI turn but old history stays Idle', () => {
